@@ -1,0 +1,34 @@
+.ticket-list-box {
+    height: 260px;
+    overflow-y: auto;
+    font-weight: bold;
+    font-size: larger;
+}
+
+.zeroToNineNumber,
+.number_qty {
+    font-size: 1.1rem !important; /* Larger text */
+    font-weight: bold !important; /* Bold */
+    text-align: center; /* Keep centered */
+    letter-spacing: 2px; /* Extra spacing between digits (optional) */
+}
+
+#abc,
+#qty {
+    font-size: 1.1rem !important; /* Larger font size */
+    font-weight: bold !important; /* Bold text */
+    text-align: center; /* Center the numbers */
+    letter-spacing: 2px; /* Extra spacing for readability (optional) */
+}
+
+/* 👇 Highlight focus effect */
+.zeroToNineNumber:focus,
+.number_qty:focus,
+#abc:focus,
+#qty:focus {
+    outline: none !important; /* Remove default blue border */
+    border: 2px solid #00ff88 !important; /* Bright green border */
+    background-color: #2a2a2a !important; /* Dark background when focused */
+    color: #ffffff !important; /* White text for readability */
+    box-shadow: 0 0 10px rgba(0, 255, 136, 0.7); /* Glow effect */
+}
