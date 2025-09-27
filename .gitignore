@@ -1,0 +1,44 @@
+# Laravel & PHP
+/vendor
+/node_modules
+/public/storage
+/storage/*.key
+.env
+.phpunit.result.cache
+Homestead.json
+Homestead.yaml
+npm-debug.log
+yarn-error.log
+composer.lock
+package-lock.json
+
+# Laravel specific
+/public/hot
+/public/mix-manifest.json
+/storage/debugbar
+/storage/framework/cache/*
+/storage/framework/sessions/*
+/storage/framework/testing/*
+/storage/framework/views/*
+/storage/logs/*
+/bootstrap/cache/*.php
+
+# Livewire specific
+/public/livewire/*
+/bootstrap/cache/livewire-components.php
+/.fleet
+/.idea
+/.vscode
+
+# OS generated
+.DS_Store
+Thumbs.db
+
+# IDE
+/.phpstorm.meta.php
+/.phpunit.cache
+<<<<<<< HEAD
+/.phpunit.result.cache
+=======
+/.phpunit.result.cache
+>>>>>>> 5885ddf988150cf26b28fe69b472961307ee2d50
