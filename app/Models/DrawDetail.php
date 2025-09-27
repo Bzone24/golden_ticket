@@ -50,7 +50,6 @@ class DrawDetail extends Model
             });
     }
 
-
     public function formatEndTime($format = 'h:i a')
     {
         return Carbon::createFromFormat('H:i', $this->end_time)->format($format);

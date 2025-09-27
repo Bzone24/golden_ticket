@@ -106,6 +106,13 @@ class UserDrawDetailsDataTable extends DataTable
     public function getColumns(): array
     {
         return [
+            // Column::computed('action')
+            //     ->exportable(false)
+            //     ->printable(false)
+            //     ->width(60)
+            //     ->addClass('text-center'),
+            // Column::make('id')->title('#ID')->hidden(),
+            // Column::make('ticket_number')->title('Ticket No.'),
             Column::make('number')->title('Number(0-9)')->orderable(true),
             Column::make('total_collection_of_a')->title('TTL. Coll. Of A'),
             Column::make('total_distribution_of_a')->title('TTL.  Dist. Of A'),
@@ -113,6 +120,8 @@ class UserDrawDetailsDataTable extends DataTable
             Column::make('total_distribution_of_b')->title('TTL.  Dist. Of B'),
             Column::make('total_collection_of_c')->title('TTL. Coll. Of C'),
             Column::make('total_distribution_of_c')->title('TTL.  Dist. Of C'),
+            // Column::make('action'),
+
         ];
     }
 

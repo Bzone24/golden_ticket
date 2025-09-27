@@ -114,8 +114,9 @@ class ShopKeeperForm extends Component
             $authUser = auth()->user();
             $shop_keeper_input_data['created_by'] = $authUser->id;
             $user = User::create($shop_keeper_input_data);
-
-            if ($authUser->hasRole('admin')) {
+            if($authUser->hasRole('master')){
+                $user->assignRole('admin');
+            } else if ($authUser->hasRole('admin') ){
                 $user->assignRole('shopkeeper');
             } else if ($authUser->hasRole('shopkeeper')) {
                 $user->assignRole('user');

@@ -164,9 +164,12 @@ class DrawDetailsDataTable extends DataTable
      * @return QueryBuilder<Shopkeeper>
      */
     public function query(UserDraw $model, Request $request): QueryBuilder
-    {
-
-        return $model->newQuery()->where('draw_detail_id', $request->drawDetail->id);
+    {   
+        if($request->user_id){
+            return $model->newQuery()->where('draw_detail_id', $request->drawDetail->id)->where('user_id', $request->user_id);
+        } else {
+            return $model->newQuery()->where('draw_detail_id', $request->drawDetail->id);
+        }
     }
 
     /**

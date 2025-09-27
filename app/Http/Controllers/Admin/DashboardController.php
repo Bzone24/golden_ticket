@@ -15,7 +15,29 @@ use Illuminate\Support\Carbon;
 
 class DashboardController extends Controller
 {
-   
+    // public function index(DrawProfilLossDataTable $dataTable, Request $request)
+    // {
+    //     $today = Carbon::today('UTC');
+    //     $today_1 = Carbon::today('Asia/Kolkata');
+
+    //     $data = [
+    //         'total_shopkeepers' => User::count(), // This is none filtered data for range filter
+    //         'total_tickets' => Ticket::whereDate('created_at', $today)->count(),
+    //         'total_claims' => DrawDetail::where('date', $today_1)
+    //             ->sum('claim'),
+    //         'total_cross_amt' => DrawDetail::where('date', $today_1)->sum('total_cross_amt'),
+    //         'total_cross_claim' => DrawDetail::where('date', $today_1)->sum('claim_ab')
+    //         + DrawDetail::where('date', $today_1)->sum('claim_ac')
+    //        + DrawDetail::where('date', $today_1)->sum('claim_bc'),
+
+    //         'claimed' => DrawDetail::where('date', $today_1)
+    //             ->where('claim', '!=', 0)
+    //             ->count(),
+
+    //     ];
+
+    //     return $dataTable->render('admin.dashboard.index', compact('data'));
+    // }
 
 
     public function index(DrawProfilLossDataTable $dataTable, Request $request)
@@ -58,12 +80,23 @@ class DashboardController extends Controller
     public function crossAbc(CrossAbDataTable $dataTable, CrossAcDataTable $crossAcDataTable, CrossBcDataTable $crossBcDataTable, Request $request)
     {
         $drawDetail = DrawDetail::findOrFail($request->get('draw_detail_id'));
-
-        return $dataTable->render('admin.dashboard.cross-abc-details', [
-            'drawDetail' => $drawDetail,
-            'crossAcDataTable' => $crossAcDataTable->html(),
-            'crossBcDataTable' => $crossBcDataTable->html(),
-        ]);
+        $user = User::find($request->get('user_id'))??null;
+       
+        if(!$user){
+            return $dataTable->render('admin.dashboard.cross-abc-details', [
+                'drawDetail' => $drawDetail,
+                'crossAcDataTable' => $crossAcDataTable->html(),
+                'crossBcDataTable' => $crossBcDataTable->html(),
+                'user'=>$user
+            ]);
+        } else {
+            return $dataTable->setUserId($user->id)->render('admin.dashboard.cross-abc-details', [
+                'drawDetail' => $drawDetail,
+                'crossAcDataTable' => $crossAcDataTable->html(),
+                'crossBcDataTable' => $crossBcDataTable->html(),
+                'user'=>$user
+            ]);
+        }
     }
 
     public function getCrossAcList(CrossAcDataTable $crossAcDataTable, CrossBcDataTable $crossBcDataTable)
@@ -77,31 +110,12 @@ class DashboardController extends Controller
         return $crossBcDataTable->render('admin.dashboard.cross-abc-details', compact('crossAcDataTable'));
     }
 
-    public function totalQtyDetailList(DrawDetail $drawDetail)
-{
-    // get draws for the same game for today (ordered by start_time)
-    $draw_list = DrawDetail::where('game_id', $drawDetail->game_id)
-        ->whereDate('created_at', Carbon::today())
-        ->orderBy('start_time')
-        ->get();
-
-    // If none found, prepare fallback start/end times and interval
-    $start_time = null;
-    $end_time = null;
-    $interval_minutes = 15;
-
-    if ($draw_list->isEmpty()) {
-        try {
-            $start_time = Carbon::parse($drawDetail->start_time)->subHour()->format('H:i');
-            $end_time   = Carbon::parse($drawDetail->end_time)->addHour()->format('H:i');
-        } catch (\Exception $e) {
-            $start_time = '09:00';
-            $end_time   = '10:15';
-        }
+    public function totalQtyDetailList(DrawDetail $drawDetail, Request $request)
+    {
+        $user = $request->user_id ? User::findOrfail($request->user_id) : null;
+        // if(!$user){
+        //     return redirect()->back()->with('error','User not found');
+        // }
+        return view('admin.dashboard.total-qty-details-table', compact('drawDetail', 'user'));
     }
-
-    return view('admin.dashboard.total-qty-details-table', compact(
-        'drawDetail', 'draw_list', 'start_time', 'end_time', 'interval_minutes'
-    ));
-}
 }

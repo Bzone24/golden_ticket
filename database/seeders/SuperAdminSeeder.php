@@ -5,8 +5,7 @@ namespace Database\Seeders;
 use App\Models\User;
 use Illuminate\Database\Console\Seeds\WithoutModelEvents;
 use Illuminate\Database\Seeder;
-use Illuminate\Support\Facades\Crypt;
-
+use Illuminate\Support\Facades\Hash;
 class SuperAdminSeeder extends Seeder
 {
     /**
@@ -19,7 +18,7 @@ class SuperAdminSeeder extends Seeder
             'last_name' => 'Admin',
             'email' => 'admin@example.com',
             'mobile_number' => '1234567890',
-            'password' => Crypt::encryptString('password'),
+            'password' => Hash::make('password'),
         ]);
 
         $admin->assignRole('admin');

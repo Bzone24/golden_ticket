@@ -3,9 +3,9 @@
     $ac_claim = (int) $drawDetail->claim_ac ?? 0;
     $bc_claim = (int) $drawDetail->claim_bc ?? 0;
 
-    $ab_pl = (int) $drawDetail->totalAbAmt() - $ab_claim * 100;
-    $ac_pl = (int) $drawDetail->totalAcAmt() - $ac_claim * 100;
-    $bc_pl = (int) $drawDetail->totalBcAmt() - $bc_claim * 100;
+    $ab_pl = (int) $drawDetail->totalAbAmt($user->id??null) - $ab_claim * 100;
+    $ac_pl = (int) $drawDetail->totalAcAmt($user->id??null) - $ac_claim * 100;
+    $bc_pl = (int) $drawDetail->totalBcAmt($user->id??null) - $bc_claim * 100;
 @endphp
 
 <table class="table table-bordered mb-0 align-middle text-center custom-table">
@@ -21,28 +21,28 @@
     <tbody>
         <tr>
             <td class="option-cell bg-ab">AB</td>
-            <td><b>{{ $drawDetail->totalAbAmt() }}</b></td>
+            <td><b>{{ $drawDetail->totalAbAmt($user->id??null) }}</b></td>
             <td class="claim-cell">{{ $ab_claim }}</td>
             <td class="{{ $ab_pl >= 0 ? 'pl-profit' : 'pl-loss' }}">{{ $ab_pl }}</td>
             <td><b>{{ $drawDetail->ab ?? 'N/A' }}</b></td>
         </tr>
         <tr>
             <td class="option-cell bg-bc">BC</td>
-            <td><b>{{ $drawDetail->totalBcAmt() }}</b></td>
+            <td><b>{{ $drawDetail->totalBcAmt($user->id??null) }}</b></td>
             <td class="claim-cell">{{ $bc_claim }}</td>
             <td class="{{ $bc_pl >= 0 ? 'pl-profit' : 'pl-loss' }}">{{ $bc_pl }}</td>
             <td><b>{{ $drawDetail->bc ?? 'N/A' }}</b></td>
         </tr>
         <tr>
             <td class="option-cell bg-ac">AC</td>
-            <td><b>{{ $drawDetail->totalAcAmt() }}</b></td>
+            <td><b>{{ $drawDetail->totalAcAmt($user->id??null) }}</b></td>
             <td class="claim-cell">{{ $ac_claim }}</td>
             <td class="{{ $ac_pl >= 0 ? 'pl-profit' : 'pl-loss' }}">{{ $ac_pl }}</td>
             <td><b>{{ $drawDetail->ac ?? 'N/A' }}</b></td>
         </tr>
         <tr class="total-row">
             <td>Total</td>
-            <td>{{ $drawDetail->totalAbAmt() + $drawDetail->totalAcAmt() + $drawDetail->totalBcAmt() }}</td>
+            <td>{{ $drawDetail->totalAbAmt($user->id??null) + $drawDetail->totalAcAmt($user->id??null) + $drawDetail->totalBcAmt($user->id??null) }}</td>
             <td class="claim-cell">{{ $ab_claim + $ac_claim + $bc_claim }}</td>
             <td>{{ $ab_pl + $ac_pl + $bc_pl }}</td>
             <td></td>

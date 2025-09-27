@@ -14,6 +14,18 @@ use Yajra\DataTables\Services\DataTable;
 
 class CrossAbDataTable extends DataTable
 {
+    protected ?int $userId = null;
+
+    public function setUserId(?int $userId): static
+    {
+        $this->userId = $userId;
+        return $this;
+    }
+
+    protected function resolveUserId(): ?int
+    {
+        return $this->userId ?? auth()->id();
+    }
     /**
      * Build the DataTable class.
      *
@@ -26,7 +38,6 @@ class CrossAbDataTable extends DataTable
             ->addIndexColumn() // ✅ Add index column here
             ->addColumn('action', function ($abc_detail) {
                 return '--';
-
             })
             ->editColumn('number', function ($abc_detail) {
                 $number = $abc_detail->number;
@@ -37,12 +48,10 @@ class CrossAbDataTable extends DataTable
                 }
 
                 return $number;
-
             })
 
             ->setRowId('id')
             ->rawColumns(['action', 'number']);
-
     }
 
     /**
@@ -50,27 +59,27 @@ class CrossAbDataTable extends DataTable
      *
      * @return QueryBuilder<Shopkeeper>
      */
-  public function query(CrossAbcDetail $model, Request $request): QueryBuilder
-{
-    $draw_detail_id = $request->get('draw_detail_id');
-    $game_id = $request->get('game_id'); // ✅ capture game_id
-
-    return $model->newQuery()
-        ->selectRaw('draw_detail_id, number, SUM(amount) as amount, MAX(updated_at) as updated_at')
-        ->where('draw_detail_id', $draw_detail_id)
-        ->where('type', 'AB')
-        ->when($game_id, function ($q) use ($game_id) {
-            // ✅ now game_id is being used
-            $q->whereHas('drawDetail', function ($sub) use ($game_id) {
-                $sub->where('game_id', $game_id);
-            });
-        })
-        ->when(request()->segment(1) !== 'admin' && auth()->user(), function ($q) {
-            return $q->where('user_id', auth()->user()->id);
-        })
-        ->with('drawDetail')
-        ->groupBy('draw_detail_id', 'number');
-}
+    public function query(CrossAbcDetail $model, Request $request): QueryBuilder
+    {
+        $draw_detail_id = $request->get('draw_detail_id');
+        $game_id = $request->get('game_id'); // ✅ capture game_id
+        
+        return $model->newQuery()
+            ->selectRaw('draw_detail_id, number, SUM(amount) as amount, MAX(updated_at) as updated_at')
+            ->where('draw_detail_id', $draw_detail_id)
+            ->where('type', 'AB')
+            ->when($game_id, function ($q) use ($game_id) {
+                // ✅ now game_id is being used
+                $q->whereHas('drawDetail', function ($sub) use ($game_id) {
+                    $sub->where('game_id', $game_id);
+                });
+            })
+            ->when(true, function ($q) {
+                return $q->where('user_id', $this->resolveUserId());
+            })
+            ->with('drawDetail')
+            ->groupBy('draw_detail_id', 'number');
+    }
 
     /**
      * Optional method if you want to use the html builder.
@@ -86,14 +95,14 @@ class CrossAbDataTable extends DataTable
             ->parameters(
                 [
                     'paging' => false,
-    'info' => false,
-    'scrollY' => '100%',       // ✅ let it auto adjust inside parent
-    'scrollCollapse' => true,
-    'scrollX' => false,        // ✅ disable horizontal scroll (not needed here)
-    'autoWidth' => true,
-    'searching' => true,
-    'language' => [
-        'searchPlaceholder' => 'Enter The Number',
+                    'info' => false,
+                    'scrollY' => '100%',       // ✅ let it auto adjust inside parent
+                    'scrollCollapse' => true,
+                    'scrollX' => false,        // ✅ disable horizontal scroll (not needed here)
+                    'autoWidth' => true,
+                    'searching' => true,
+                    'language' => [
+                        'searchPlaceholder' => 'Enter The Number',
                     ],
                 ]
             )
@@ -129,6 +138,6 @@ class CrossAbDataTable extends DataTable
      */
     protected function filename(): string
     {
-        return 'ab_cross-'.date('YmdHis');
+        return 'ab_cross-' . date('YmdHis');
     }
 }

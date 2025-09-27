@@ -1,9 +1,13 @@
 <div class="col-12">
     <div class="card shadow-lg border-0 rounded-3">
         <div class="card-header custom-header d-flex justify-content-between align-items-center">
+             <h5 class="text-white mb-0 fw-bold">
+                {{$user->name??''}}
+            </h5>
             <h5 class="text-white mb-0 fw-bold">
                 <i class="bi bi-bar-chart-fill me-2"></i> Details Of Cross ABC
             </h5>
+            
             <h5 class="text-white mb-0 fw-bold">
                 Game:{{$drawDetail->draw->game->name}}
             </h5>

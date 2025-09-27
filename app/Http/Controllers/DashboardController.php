@@ -29,7 +29,6 @@ class DashboardController extends Controller
 
         $games = \App\Models\Game::all();
         $currentGame = $request->input('game_id');
-
         // ✅ Pass $dataTable properly
         return $dataTable->render('web.dashboard.index', compact(
             'total_available_draws',

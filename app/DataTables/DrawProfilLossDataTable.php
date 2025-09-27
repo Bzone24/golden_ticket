@@ -3,6 +3,7 @@
 namespace App\DataTables;
 
 use App\Models\DrawDetail;
+use App\Models\User;
 use App\Traits\CalculatePL;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Illuminate\Http\Request;
@@ -46,16 +47,53 @@ class DrawProfilLossDataTable extends DataTable
         $ab_claim = $draw_detail->ab;
         $ac_claim = $draw_detail->ac;
         $bc_claim = $draw_detail->bc;
-        if (request()->segment(1) != 'admin') {
-            $ab_claim = $draw_detail->crossAbcDetail()->where('user_id', $this->resolveUserId())
-                ->where('number', $ab_claim)
-                ->where('type', 'AB')->sum('amount');
-            $ac_claim = $draw_detail->crossAbcDetail()->where('user_id', $this->resolveUserId())
-                ->where('number', $ac_claim)
-                ->where('type', 'AC')->sum('amount');
-            $bc_claim = $draw_detail->crossAbcDetail()->where('user_id', $this->resolveUserId())
-                ->where('number', $bc_claim)
-                ->where('type', 'BC')->sum('amount');
+        $user = auth()->user();
+        if ($user->hasRole(['user', 'shopkeeper', 'admin'])) {
+            if ($user->hasRole('admin')) {
+                $userIds = User::whereIn('created_by', function ($q) use ($user) {
+                    $q->select('id')
+                        ->from('users')
+                        ->where('created_by', $user->id);
+                })->pluck('id');
+
+                $totals = $draw_detail->crossAbcDetail()
+                    ->whereIn('user_id', $userIds)
+                    ->selectRaw("
+                        SUM(CASE WHEN number = ? AND type = 'AB' THEN amount ELSE 0 END) as ab_total,
+                        SUM(CASE WHEN number = ? AND type = 'AC' THEN amount ELSE 0 END) as ac_total,
+                        SUM(CASE WHEN number = ? AND type = 'BC' THEN amount ELSE 0 END) as bc_total
+                    ", [$ab_claim, $ac_claim, $bc_claim])
+                    ->first();
+
+                $ab_claim = $totals->ab_total ?? 0;
+                $ac_claim = $totals->ac_total ?? 0;
+                $bc_claim = $totals->bc_total ?? 0;
+            } elseif ($user->hasRole('shopkeeper')) {
+                $userIds = User::where('created_by', $user->id)->pluck('id');
+                $totals = $draw_detail->crossAbcDetail()
+                    ->whereIn('user_id', $userIds)
+                    ->selectRaw("
+                    SUM(CASE WHEN number = ? AND type = 'AB' THEN amount ELSE 0 END) as ab_total,
+                    SUM(CASE WHEN number = ? AND type = 'AC' THEN amount ELSE 0 END) as ac_total,
+                    SUM(CASE WHEN number = ? AND type = 'BC' THEN amount ELSE 0 END) as bc_total
+                ", [$ab_claim, $ac_claim, $bc_claim])
+                    ->first();
+
+                $ab_claim = $totals->ab_total ?? 0;
+                $ac_claim = $totals->ac_total ?? 0;
+                $bc_claim = $totals->bc_total ?? 0;
+            } else {
+                $ab_claim = $draw_detail->crossAbcDetail()->where('user_id', $this->resolveUserId())
+                    ->where('number', $ab_claim)
+                    ->where('type', 'AB')->sum('amount');
+                $ac_claim = $draw_detail->crossAbcDetail()->where('user_id', $this->resolveUserId())
+                    ->where('number', $ac_claim)
+                    ->where('type', 'AC')->sum('amount');
+                $bc_claim = $draw_detail->crossAbcDetail()->where('user_id', $this->resolveUserId())
+                    ->where('number', $bc_claim)
+                    ->where('type', 'BC')->sum('amount');
+            }
+
 
             return $ab_claim + $ac_claim + $bc_claim;
         }
@@ -65,39 +103,98 @@ class DrawProfilLossDataTable extends DataTable
 
     protected function getCrossAmt($draw_detail)
     {
-
-        if (! $this->isAdminSeg() || ($this->isAdminSeg() && $this->userId)) {
+        $user = auth()->user();
+        if ($user->hasRole('admin')) {
+            $userIds = User::whereIn('created_by', function ($q) use ($user) {
+                $q->select('id')
+                    ->from('users')
+                    ->where('created_by', $user->id);
+            })->pluck('id');
+            if ($user->hasRole('admin') && $this->userId) {
+                return $draw_detail->crossAbcDetail()
+                    ->where('user_id', $this->resolveUserId())
+                    ->sum('amount');
+            } else {
+                return $draw_detail->crossAbcDetail()
+                    ->whereIn('user_id', $userIds)
+                    ->sum('amount');
+            }
+        } elseif ($user->hasRole('shopkeeper')) {
+            $userIds = User::where('created_by', $user->id)->pluck('id');
+            return $draw_detail->crossAbcDetail()
+                ->whereIn('user_id', $userIds)
+                ->sum('amount');
+        } elseif ($user->hasRole('user')) {
             return $draw_detail->crossAbcDetail()
                 ->where('user_id', $this->resolveUserId())
                 ->sum('amount');
+        } else {
+            if ($user->hasRole('master') && $this->userId) {
+                return $draw_detail->crossAbcDetail()
+                    ->where('user_id', $this->resolveUserId())
+                    ->sum('amount');
+            } else {
+                return $draw_detail->cross_amt;
+            }
         }
-
-        return $draw_detail->cross_amt;
     }
 
     protected function getClaim($draw_detail)
     {
-        if ($this->isAdminSeg() && !$this->userId) {
+        $user = auth()->user();
+        if ($user->hasRole(['master'])) {
             return $draw_detail->claim;
         } else {
             $a_claim = $draw_detail->claim_a;
             $b_claim = $draw_detail->claim_b;
             $c_claim = $draw_detail->claim_c;
+            if ($user->hasRole('admin')) {
+                $userIds = User::whereIn('created_by', function ($q) use ($user) {
+                    $q->select('id')
+                        ->from('users')
+                        ->where('created_by', $user->id);
+                })->pluck('id');
 
-            $a_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())
-                ->where('number', $a_claim)
-                ->sum('a_qty');
-            $b_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())
-                ->where('number', $b_claim)
-                ->sum('b_qty');
+                $totals = $draw_detail->ticketOptions()
+                    ->whereIn('user_id', $userIds)
+                    ->selectRaw("
+                                                    SUM(CASE WHEN number = ? THEN a_qty ELSE 0 END) as a_total,
+                                                    SUM(CASE WHEN number = ? THEN b_qty ELSE 0 END) as b_total,
+                                                    SUM(CASE WHEN number = ? THEN c_qty ELSE 0 END) as c_total
+                                                ", [$a_claim, $b_claim, $c_claim])
+                    ->first();
 
-            $c_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())
-                ->where('number', $c_claim)
-                ->sum('c_qty');
+                $a_qty = $totals->a_total ?? 0;
+                $b_qty = $totals->b_total ?? 0;
+                $c_qty = $totals->c_total ?? 0;
+            } else if ($user->hasRole('shopkeeper')) {
+                $userIds = User::where('created_by', $user->id)->pluck('id');
+                $totals = $draw_detail->ticketOptions()
+                    ->whereIn('user_id', $userIds)
+                    ->selectRaw("
+                                                    SUM(CASE WHEN number = ? THEN a_qty ELSE 0 END) as a_total,
+                                                    SUM(CASE WHEN number = ? THEN b_qty ELSE 0 END) as b_total,
+                                                    SUM(CASE WHEN number = ? THEN c_qty ELSE 0 END) as c_total
+                                                ", [$a_claim, $b_claim, $c_claim])
+                    ->first();
+
+                $a_qty = $totals->a_total ?? 0;
+                $b_qty = $totals->b_total ?? 0;
+                $c_qty = $totals->c_total ?? 0;
+            } else {
+                $a_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())
+                    ->where('number', $a_claim)
+                    ->sum('a_qty');
+                $b_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())
+                    ->where('number', $b_claim)
+                    ->sum('b_qty');
+
+                $c_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())
+                    ->where('number', $c_claim)
+                    ->sum('c_qty');
+            }
 
             return $a_qty + $b_qty + $c_qty;
-            // ->claim_a_qty + $draw_detail->ticketOption->claim_b_qty + $draw_detail->ticketOption->claim_c_qty;
-
         }
     }
 
@@ -112,11 +209,35 @@ class DrawProfilLossDataTable extends DataTable
 
     protected function getTq($draw_detail)
     {
-
-        if (! $this->isAdminSeg() || ($this->isAdminSeg() && $this->userId)) {
-            $a_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())->sum('a_qty');
-            $b_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())->sum('b_qty');
-            $c_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())->sum('c_qty');
+        $user = auth()->user();
+        if ($user->hasRole(['user', 'shopkeeper', 'admin']) || $this->userId) {
+            if ($user->hasRole('admin')) {
+                $userIds = User::whereIn('created_by', function ($q) use ($user) {
+                    $q->select('id')
+                        ->from('users')
+                        ->where('created_by', $user->id);
+                })->pluck('id');
+                $draw_detail =   $draw_detail->ticketOptions()
+                    ->whereIn('user_id', $userIds)
+                    ->selectRaw('SUM(a_qty) as a_total, SUM(b_qty) as b_total, SUM(c_qty) as c_total')
+                    ->first();
+                $a_qty = $draw_detail->a_total ?? 0;
+                $b_qty = $draw_detail->b_total ?? 0;
+                $c_qty = $draw_detail->c_total ?? 0;
+            } else if ($user->hasRole('shopkeeper')) {
+                $userIds = User::where('created_by', $user->id)->pluck('id');
+                $draw_detail =   $draw_detail->ticketOptions()
+                    ->whereIn('user_id', $userIds)
+                    ->selectRaw('SUM(a_qty) as a_total, SUM(b_qty) as b_total, SUM(c_qty) as c_total')
+                    ->first();
+                $a_qty = $draw_detail->a_total ?? 0;
+                $b_qty = $draw_detail->b_total ?? 0;
+                $c_qty = $draw_detail->c_total ?? 0;
+            } else {
+                $a_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())->sum('a_qty');
+                $b_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())->sum('b_qty');
+                $c_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())->sum('c_qty');
+            }
 
             return $a_qty + $b_qty + $c_qty;
         }
@@ -129,7 +250,7 @@ class DrawProfilLossDataTable extends DataTable
         return $draw_detail->load('draw.game')->draw->game->name;
     }
 
-    public function dataTable(QueryBuilder $query, Request $request): EloquentDataTable
+    public function dataTable(QueryBuilder $query): EloquentDataTable
     {
         return (new EloquentDataTable($query))
             //Sourabh 
@@ -138,8 +259,8 @@ class DrawProfilLossDataTable extends DataTable
             })
             ->editColumn('end_time', function ($draw_detail) {
                 $end_time = Carbon::parse($draw_detail->end_time)->format('h:i a');
-                $url = request()->segment(1) === 'admin'
-                    ? route('admin.draw.detail.list', $draw_detail->id)
+                $url = request()->segment(1) === 'admin'  
+                    ? route('admin.draw.detail.list', [$draw_detail->id,'user_id'=>$this->userId])
                     : route('dashboard.draw.details.list', ['draw_detail_id' => $draw_detail->id]);
 
                 return "<a href='$url' class='text-primary h6'>$end_time</a>";
@@ -172,14 +293,14 @@ class DrawProfilLossDataTable extends DataTable
             })
             ->editColumn('tq', function ($draw_detail) {
                 $tq = $this->getTq($draw_detail);
-                $url = $this->isAdminSeg() ? route('admin.dashboard.total.qty.details.list', $draw_detail->id)
+                $url = $this->isAdminSeg() ? route('admin.dashboard.total.qty.details.list', [$draw_detail->id, 'user_id' => $this->userId])
                     : route('dashboard.draw.total.qty.list.details', $draw_detail->id);
 
                 return "<a href='$url' class='text-primary h6'>{$tq}</a>";
             })
             ->editColumn('cross_amt', function ($draw_detail) {
                 $cross_amt = $this->getCrossAmt($draw_detail);
-                $url = $this->isAdminSeg() ? route('admin.dashboard.cross.abc', ['draw_detail_id' => $draw_detail->id])
+                $url = $this->isAdminSeg() ? route('admin.dashboard.cross.abc', ['draw_detail_id' => $draw_detail->id, 'user_id' => $this->userId])
                     : route('dashboard.draw.cross.abc.details.list', ['draw_detail_id' => $draw_detail->id]);
 
                 return "<a href='$url' class='text-primary h6'>{$cross_amt}</a>";
@@ -211,7 +332,7 @@ class DrawProfilLossDataTable extends DataTable
                 $end_time = Carbon::createFromTimeString($draw_detail->end_time)->format('H:i');
                 $now = Carbon::now()->setSecond(0)->timezone('Asia/Kolkata');
                 $segment = request()->segment(1);
-                if (auth()->user()->hasRole('admin')) {
+                if (auth()->user()->hasRole('master')) {
                     if (
                         $segment === 'admin' && $now->gte($end_time) &&
                         (empty($draw_detail->claim_a) && empty($draw_detail->claim_a) && empty($draw_detail->claim_b))
@@ -223,15 +344,17 @@ class DrawProfilLossDataTable extends DataTable
                             </div>
                         HTML;
                     } else {
-                        return <<<HTML
-                            <div class="d-flex justify-content-center justify-space-between">
-                             
-                                <button class="btn btn-danger addClaim ms-3 text-white" data-draw-detail-id="{$draw_detail_id}">
-                                   <strong>{$this->getResult($draw_detail)}</strong>
-                                   <i class="fa fa-pencil"></i> 
-                                </button>
-                            </div>
-                        HTML;
+                        if (!empty($draw_detail->claim_a) || !empty($draw_detail->claim_a) || !empty($draw_detail->claim_b)) {
+                            return <<<HTML
+                                <div class="d-flex justify-content-center justify-space-between">
+                                 
+                                    <button class="btn btn-danger addClaim ms-3 text-white" data-draw-detail-id="{$draw_detail_id}">
+                                       <strong>{$this->getResult($draw_detail)}</strong>
+                                       <i class="fa fa-pencil"></i> 
+                                    </button>
+                                </div>
+                            HTML;
+                        }
                     }
                 }
 
@@ -245,8 +368,8 @@ class DrawProfilLossDataTable extends DataTable
      */
     public function query(DrawDetail $model, Request $request): QueryBuilder
     {
+        // dd(auth()->user());
         $game_id = $request->get('game_id');
-        // dd($request);
         return $model->newQuery()
             ->select('draw_details.*')
             ->when($game_id, fn($q) => $q->where('game_id', $game_id))
@@ -290,7 +413,7 @@ class DrawProfilLossDataTable extends DataTable
             })
             // ✅ For non-admin restrict by user
             ->when(
-                (!$this->isAdminSeg() && auth()->user()) || ($this->isAdminSeg() && $this->userId),
+                auth()->user()->hasRole(['user']) || $this->userId,
                 fn($q) => $q->forUserTicketOption($this->resolveUserId())
             )
             // ✅ Order handling

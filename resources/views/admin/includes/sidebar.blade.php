@@ -20,7 +20,7 @@
               <iconify-icon icon="solar:menu-dots-linear" class="nav-small-cap-icon fs-4"></iconify-icon>
               <span class="hide-menu">Home</span>
             </li> --}}
-                @hasanyrole('admin|shopkeeper')
+                @hasanyrole('admin|shopkeeper|master')
                 <li class="sidebar-item">
                     <a @class([
                         'sidebar-link',
@@ -31,7 +31,7 @@
                     </a>
                 </li>
                 @endhasanyrole
-                @hasanyrole('admin|shopkeeper')
+                @hasanyrole('admin|shopkeeper|master')
                 <li class="sidebar-item">
                     <a @class([
                         'sidebar-link',
@@ -43,12 +43,14 @@
                                   Shopkeeper
                               @elserole('shopkeeper')
                                   User
+                              @else
+                                  Shopkeeper/User
                               @endrole
                         </span>
                     </a>
                 </li>
                 @endhasanyrole
-                @hasanyrole('admin')
+                @hasanyrole('master')
                 <li class="sidebar-item">
                     <a @class(['sidebar-link', 'active' => request()->is(['admin/draw/*'])]) href="{{ route('admin.draw') }}" aria-expanded="false">
                         <i class="ti ti-plus"></i>

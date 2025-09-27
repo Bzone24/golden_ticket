@@ -629,7 +629,6 @@ trait OptonsOperation
         });
 
         // === AFTER TRANSACTION: only emit/dispatch when transaction returned a payload array ===
-
         if ($result instanceof \Illuminate\Http\RedirectResponse) {
             return $result;
         }

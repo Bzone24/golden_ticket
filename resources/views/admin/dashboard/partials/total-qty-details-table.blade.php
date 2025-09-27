@@ -3,16 +3,16 @@
     $tq_a = $tq_b = $tq_c = 0;
     $a_amounts = $b_amounts = $c_amounts = [];
     foreach ($indices as $i) {
-        $tq_a += $drawDetail->totalAqty($i);
-        $a_amounts[] = $drawDetail->totalAqty($i);
+        $tq_a += $drawDetail->totalAqty($i,$user->id??null);
+        $a_amounts[] = $drawDetail->totalAqty($i,$user->id??null);
     }
     foreach ($indices as $i) {
-        $tq_b += $drawDetail->totalBqty($i);
-        $b_amounts[] = $drawDetail->totalBqty($i);
+        $tq_b += $drawDetail->totalBqty($i,$user->id??null);
+        $b_amounts[] = $drawDetail->totalBqty($i,$user->id??null);
     }
     foreach ($indices as $i) {
-        $tq_c += $drawDetail->totalCqty($i);
-        $c_amounts[] = $drawDetail->totalCqty($i);
+        $tq_c += $drawDetail->totalCqty($i,$user->id??null);
+        $c_amounts[] = $drawDetail->totalCqty($i,$user->id??null);
     }
 
     $claim_a_amt = $drawDetail->claim_a ? $a_amounts[$drawDetail->claim_a] : 0;
@@ -44,9 +44,9 @@
                 <td @class([
                     'bg-danger text-white' =>
                         $drawDetail->claim_a == $i &&
-                        $drawDetail->totalAqty($i) == $claim_a_amt &&
-                        $drawDetail->totalAqty($i) != 0,
-                ])>{{ $drawDetail->totalAqty($i) }}</td>
+                        $drawDetail->totalAqty($i,$user->id??null) == $claim_a_amt &&
+                        $drawDetail->totalAqty($i,$user->id??null) != 0,
+                ])>{{ $drawDetail->totalAqty($i,$user->id??null) }}</td>
             @endforeach
             <td>{{ $tq_a }}</td>
             <td>{{ $claim_a_amt }}</td>
@@ -63,9 +63,9 @@
                 <td @class([
                     'bg-danger text-white' =>
                         $drawDetail->claim_b == $i &&
-                        $drawDetail->totalBqty($i) == $claim_b_amt &&
-                        $drawDetail->totalBqty($i) != 0,
-                ])>{{ $drawDetail->totalBqty($i) }}</td>
+                        $drawDetail->totalBqty($i,$user->id??null) == $claim_b_amt &&
+                        $drawDetail->totalBqty($i,$user->id??null) != 0,
+                ])>{{ $drawDetail->totalBqty($i,$user->id??null) }}</td>
             @endforeach
             <td>{{ $tq_b }}</td>
             <td>{{ $claim_b_amt }}</td>
@@ -82,9 +82,9 @@
                 <td @class([
                     'bg-danger text-white' =>
                         $drawDetail->claim_c == $i &&
-                        $drawDetail->totalCqty($i) == $claim_c_amt &&
-                        $drawDetail->totalCqty($i) != 0,
-                ])>{{ $drawDetail->totalCqty($i) }}</td>
+                        $drawDetail->totalCqty($i,$user->id??null) == $claim_c_amt &&
+                        $drawDetail->totalCqty($i,$user->id??null) != 0,
+                ])>{{ $drawDetail->totalCqty($i,$user->id??null) }}</td>
             @endforeach
             <td>{{ $tq_c }}</td>
             <td>{{ $claim_c_amt }}</td>

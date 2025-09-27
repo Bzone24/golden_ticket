@@ -175,7 +175,7 @@
 @endsection
 
 @push('scripts')
-{!! $dataTable->scripts() !!}
+{{-- {!! $dataTable->scripts() !!} --}}
 <script>
 $(document).ready(function() {
     $('#myDataTable').DataTable({

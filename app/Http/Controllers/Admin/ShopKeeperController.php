@@ -5,6 +5,7 @@ namespace App\Http\Controllers\Admin;
 use App\DataTables\Admin\ShopKeeperDrawDetailsDataTable;
 use App\DataTables\Admin\ShopkeepersDataTable;
 use App\DataTables\DrawProfilLossDataTable;
+use App\DataTables\GetUserDetailsStatsDataTable;
 use App\Http\Controllers\Controller;
 use App\Models\User;
 use Carbon\Carbon;
@@ -40,7 +41,15 @@ class ShopKeeperController extends Controller
         if ($request->user_id) {
             $user = User::findOrfail($request->user_id);
         }
-        // ✅ Pass $dataTable properly
         return $dataTable->setUserId($userId)->render('admin.shopkeepers.drawlist',compact('user'));
+    }
+
+    public function getUserDetailsStats(GetUserDetailsStatsDataTable $dataTable,Request $request)
+    {
+        $user = $request->user_id ? User::findOrfail($request->user_id) : null;
+        if(!$user){
+            return redirect()->back()->with('error','User not found');
+        }
+        return $dataTable->render('admin.shopkeepers.user.details', compact('user'));
     }
 }

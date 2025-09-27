@@ -26,6 +26,14 @@ class ShopkeepersDataTable extends DataTable
             ->filterColumn('name', function ($query, $keyword) {
                 return $query->forName($keyword);
             })
+            ->editColumn('name', function ($shopKeeper) {
+                $shopkeeprViewUrl = route('admin.shopkeepers', ['user_id' => $shopKeeper->id]);
+                $user = User::find($shopKeeper->id);
+                if($user && !$user->hasRole('user')){
+                    return '<a href="'.$shopkeeprViewUrl.'" class="text-primary">'.$shopKeeper->name.'</a>';
+                }
+                return $shopKeeper->name;
+            })
             ->addColumn('total_draws', function ($user) {
                 return $user->drawDetails->count();
             })
@@ -50,7 +58,7 @@ class ShopkeepersDataTable extends DataTable
                 HTML;
             })
             ->setRowId('id')
-            ->rawColumns(['action', 'total_draws', 'password_plain']);
+            ->rawColumns(['action', 'total_draws', 'password_plain','name']);
     }
 
     /**
@@ -60,10 +68,24 @@ class ShopkeepersDataTable extends DataTable
      */
     public function query(User $model): QueryBuilder
     {
+
         $user = auth()->user();
+        $shopkeeperId = request()->route('user_id');
+        // dd($shopkeeperId);
+        if($shopkeeperId){
+            $user = User::find($shopkeeperId);
+        }
+        
+        if ( $user->hasRole('master')) {
+            return $model->newQuery()
+                ->role('admin')
+                ->with('children')
+                ->select('users.*');
+        }
 
         if ($user->hasRole('admin')) {
             return $model->newQuery()
+                ->where('created_by', $user->id)
                 ->role('shopkeeper')
                 ->with('children')
                 ->select('users.*');

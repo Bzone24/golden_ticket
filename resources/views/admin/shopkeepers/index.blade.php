@@ -8,7 +8,7 @@
                 <div class="card">
                     <div class="card-header d-flex justify-content-end">
                         <a href="{{ route('admin.shopkeeper_form') }}" class="btn btn-primary">
-                                @hasrole('admin')Add New Shopkeeper @elserole('shopkeeper')Add New User @endrole
+                                @hasrole(['admin'])Add New Shopkeeper @elserole('shopkeeper')Add New User @elserole('master') Add New Admin @endrole
                                 <i class="ti ti-plus"></i></a>
                     </div>
                     <div class="card-body">

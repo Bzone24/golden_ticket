@@ -7,7 +7,6 @@ use App\Models\Ticket;
 use Carbon\Carbon;
 use Livewire\Attributes\On;
 
-
 trait TicketFormAction
 {
     use OptonsOperation;
