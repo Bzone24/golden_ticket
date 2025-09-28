@@ -6,45 +6,40 @@ use Illuminate\Foundation\Http\FormRequest;
 
 class CreateUserRequest extends FormRequest
 {
-    /**
-     * Determine if the user is authorized to make this request.
-     */
     public function authorize(): bool
     {
         return true;
     }
 
-    /**
-     * Get the validation rules that apply to the request.
-     *
-     * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
-     */
     public function rules(): array
     {
-
         return [
-            'first_name' => ['required', 'string', 'min:2', 'max:255'],
-            'last_name' => ['required', 'string', 'min:2', 'max:255'],
-            'email' => ['required', 'string', 'email', 'max:255', 'unique:users,email'],
-            'phone_number' => ['required', 'string', 'email', 'max:12', 'unique:users,phone_number'],
+            'username' => ['required','string','alpha_dash','max:100','unique:users,username'],
+            'full_name' => ['required','string','max:255'],
+            'email' => ['nullable','email','max:255','unique:users,email'],
+            'mobile_number' => ['nullable','string','max:50'],
 
             'password' => [
                 'required',
                 'string',
-                'confirmed', // expects 'password_confirmation' field
+                'min:6',            // <-- added minimum length
+                'confirmed',        // expects 'password_confirmation' field
             ],
-            'allowed_games'   => ['required', 'array', 'min:1'],
-        'allowed_games.*' => ['integer', 'exists:games,id'],
-        ];
 
+            'allowed_games'   => ['required', 'array', 'min:1'],
+            'allowed_games.*' => ['integer', 'exists:games,id'],
+        ];
     }
 
     public function attributes()
     {
         return [
-            'first_name' => 'First name',
-            'last_name' => 'Last name',
-            'phone_number' => 'Phone Number',
+            // map fields to friendly labels shown in validation errors
+            'username' => 'Username',
+            'full_name' => 'Full name',
+            'mobile_number' => 'Mobile number',
+            'email' => 'Email',
+            'password' => 'Password',
         ];
     }
 }

@@ -5399,7 +5399,7 @@ fieldset:disabled .btn {
     --bs-card-cap-bg: rgba(var(--bs-body-color-rgb), 0.03);
     --bs-card-cap-color: ;
     --bs-card-height: ;
-    --bs-card-color: ;
+    --bs-card-color: #e5efee;
     --bs-card-bg: var(--bs-body-bg);
     --bs-card-img-overlay-padding: 1rem;
     --bs-card-group-margin: 12px;
@@ -19044,8 +19044,8 @@ fieldset:disabled .btn {
 
 body {
     font-family: "DM Sans", sans-serif !important;
-    /* background-color: #f6f8fb; */
-    background-color: #2f2131;
+    background-color: #f6f8fb;
+    /* background-color: #2f2131; */
 }
 
 .page-wrapper {
@@ -19055,6 +19055,7 @@ body {
 .body-wrapper {
     position: relative;
     border-radius: 20px;
+    background-color: #fff;
 }
 
 .body-wrapper .body-wrapper-inner {

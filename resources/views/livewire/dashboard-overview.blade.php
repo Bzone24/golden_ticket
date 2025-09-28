@@ -1,7 +1,7 @@
 <div wire:poll.5s>
     <div class="row mb-3">
         <div class="card-header bg-primary text-white text-center">
-            <h4 class="mb-0">Total ShopKeepers</h4>
+            <h4 class="mb-0">@hasrole('master')Total Admin @elserole('admin') Total shopkeepers @elserole('shopkeeper') Total User @endrole</h4>
         </div>
         <div class="card user-totals-table">
             <div class="card-body p-0">
@@ -18,9 +18,13 @@
                                 </tr>
                             </thead>
                             <tbody>
+                                
                                 @foreach ($users as $user)
-                                    <tr onclick="location.href='{{ route('admin.shopkeeper.drawlist', [$user['user_id']]) }}'"
+                                    {{-- @if($user['parent_id'])--}}
+                                    <tr onclick="location.href='{{ route('admin.shopkeeper.get.user.details', [$user['parent_id']]) }}'"
                                         style="cursor: pointer;">
+                                    {{--@else 
+                                        <tr> @endif --}}
                                         <td class="user-name-cell">
                                             <div class="d-flex align-items-center">
                                                 {{-- <div class="bg-primary rounded-circle text-white d-flex align-items-center justify-content-center me-2" 
@@ -60,7 +64,7 @@
         </div>
     </div>
 
-    <div class="row">
+    {{-- <div class="row">
         <div class="card-header bg-info text-white text-center">
             <h4 class="mb-0">Draw Overview For Today</h4>
         </div>
@@ -82,5 +86,5 @@
                 </div>
             </div>
         </div>
-    </div>
+    </div> --}}
 </div>

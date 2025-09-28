@@ -48,7 +48,7 @@ class DashboardOverview extends Component
             })
             ->get();
             
-            // dd($users_details[1]);
+            // dd($users_details);
         $this->users = $users_details
             ->map(function ($user) {
                 // calculate per-user totals

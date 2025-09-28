@@ -93,42 +93,80 @@ trait TicketFormPagination
         $this->loadAbcData();
     }
 
+    // public function loadDraws()
+    // {
+    //     $current_time = Carbon::now('Asia/Kolkata')->format('H:i:s'); // include seconds
+    //     $today = Carbon::today('Asia/Kolkata')->format('Y-m-d');
+
+    //     $drawQuery = DrawDetail::with('draw.game')->whereDate('date', $today)
+    //         ->where(function ($q) use ($current_time) {
+    //             $q->where(function ($inner) use ($current_time) {
+    //                 $inner->where('start_time', '<=', $current_time)
+    //                     // cutoff 1 min earlier: only include if end_time - 1min >= current time
+    //                     // ->whereRaw("SEC_TO_TIME(TIME_TO_SEC(end_time) - 60) >= ?", [$current_time]);
+    //                     ->where('end_time', '>=', $current_time);
+
+    //             })
+    //             ->orWhere('start_time', '>', $current_time);
+    //         });
+    //     $count = (clone $drawQuery)->count();
+    //     // $this->drawPerPage = $count <= 10 ? 10 : $this->drawPerPage;
+    //     $this->drawPerPage = max(10, $count);
+
+    //     $paginatedDraws = $drawQuery->orderByRaw('
+    //         CASE
+    //             WHEN start_time <= ? AND end_time >= ? THEN 0
+    //             ELSE 1
+    //         END, start_time
+    //     ', [$current_time, $current_time])
+    //     ->paginate($this->drawPerPage, ['*'], 'draw_page', $this->draw_page);
+
+    //     // ✅ replace instead of merge
+    //     $this->draw_list = $paginatedDraws->items();
+
+    //     $this->loaded_draw_ids = [];
+    //     $this->hasMoreDrawPages = $paginatedDraws->hasMorePages();
+    //     // ✅ keep selection synced with what’s visible & open
+    //     $this->sanitizeSelectedDrawFromList();
+    // }
+
+    
     public function loadDraws()
-    {
-        $current_time = Carbon::now('Asia/Kolkata')->format('H:i:s'); // include seconds
-        $today = Carbon::today('Asia/Kolkata')->format('Y-m-d');
+{
+    $current_time = Carbon::now('Asia/Kolkata')->format('H:i:s');
+    $today = Carbon::today('Asia/Kolkata')->format('Y-m-d');
 
-        $drawQuery = DrawDetail::with('draw.game')->whereDate('date', $today)
-            ->where(function ($q) use ($current_time) {
-                $q->where(function ($inner) use ($current_time) {
-                    $inner->where('start_time', '<=', $current_time)
-                        // cutoff 1 min earlier: only include if end_time - 1min >= current time
-                        // ->whereRaw("SEC_TO_TIME(TIME_TO_SEC(end_time) - 60) >= ?", [$current_time]);
-                        ->where('end_time', '>=', $current_time);
+    $drawQuery = DrawDetail::with('draw.game')
+        ->whereDate('date', $today)
+        ->where(function ($q) use ($current_time) {
+            $q->where(function ($inner) use ($current_time) {
+                $inner->where('start_time', '<=', $current_time)
+                    ->where('end_time', '>=', $current_time);
+            })
+            ->orWhere('start_time', '>', $current_time);
+        })
+        ->when($this->gameFilter !== 'both', function ($query) {
+            $query->whereHas('draw.game', fn($q) => $q->where('name', $this->gameFilter));
+        });
 
-                })
-                ->orWhere('start_time', '>', $current_time);
-            });
-        $count = (clone $drawQuery)->count();
-        // $this->drawPerPage = $count <= 10 ? 10 : $this->drawPerPage;
-        $this->drawPerPage = max(10, $count);
+    $count = (clone $drawQuery)->count();
+    $this->drawPerPage = max(10, $count);
 
-        $paginatedDraws = $drawQuery->orderByRaw('
-            CASE
-                WHEN start_time <= ? AND end_time >= ? THEN 0
-                ELSE 1
-            END, start_time
-        ', [$current_time, $current_time])
-        ->paginate($this->drawPerPage, ['*'], 'draw_page', $this->draw_page);
+    $paginatedDraws = $drawQuery->orderByRaw('
+        CASE
+            WHEN start_time <= ? AND end_time >= ? THEN 0
+            ELSE 1
+        END, start_time
+    ', [$current_time, $current_time])
+    ->paginate($this->drawPerPage, ['*'], 'draw_page', $this->draw_page);
 
-        // ✅ replace instead of merge
-        $this->draw_list = $paginatedDraws->items();
+    $this->draw_list = $paginatedDraws->items();
 
-        $this->loaded_draw_ids = [];
-        $this->hasMoreDrawPages = $paginatedDraws->hasMorePages();
-        // ✅ keep selection synced with what’s visible & open
-        $this->sanitizeSelectedDrawFromList();
-    }
+    $this->loaded_draw_ids = [];
+    $this->hasMoreDrawPages = $paginatedDraws->hasMorePages();
+
+    $this->sanitizeSelectedDrawFromList();
+}
 
     public function loadLatestDraws()
     {

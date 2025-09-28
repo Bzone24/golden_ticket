@@ -313,341 +313,418 @@ trait OptonsOperation
     /**
      * submitTicket - refactored for single wallet-debit and centralized validation/limit checking
      */
-    public function submitTicket()
-    {
-        // backward-compat: ensure game_id is set from selected_games or current ticket
-        if (!$this->game_id && !empty($this->selected_games)) {
-            $this->game_id = (int) (is_array($this->selected_games) ? reset($this->selected_games) : $this->selected_games);
+   public function submitTicket()
+{
+    // backward-compat: ensure game_id is set from selected_games or current ticket
+    if (!$this->game_id && !empty($this->selected_games)) {
+        $this->game_id = (int) (is_array($this->selected_games) ? reset($this->selected_games) : $this->selected_games);
+    }
+    if (!$this->game_id && $this->current_ticket_id) {
+        $this->game_id = Ticket::whereKey($this->current_ticket_id)->value('game_id');
+    }
+    if (!$this->game_id) {
+        $this->addError('submit_error', 'Please select a Game (N1/N2) before submitting.');
+        return true;
+    }
+
+    // Filter valid draws (still open)
+    $openIds = $this->filterOpenDrawIds($this->selected_draw ?? []);
+    if (empty($openIds)) {
+        $this->addError('submit_error', 'Selected draw has closed. Please pick an upcoming draw.');
+        return true;
+    }
+
+    // normalize
+    $selected_draw_ids = array_map('intval', $openIds);
+    $this->selected_draw = array_map('strval', $openIds);
+
+    $gameIds = [];
+    if (is_array($this->selected_games) && count($this->selected_games) > 0) {
+        $gameIds = array_values(array_map('intval', $this->selected_games));
+    } else {
+        $gameIds = [(int) $this->game_id];
+    }
+
+    $result = DB::transaction(function () use ($selected_draw_ids, $gameIds) {
+
+        // ---------- prepare cached options / cross ----------
+        try {
+            $cachedOptions = $this->getOptionsIntoCache();
+            $payloadStoredOptions = $cachedOptions->values()->all();
+        } catch (\Throwable $e) {
+            $payloadStoredOptions = [];
         }
-        if (!$this->game_id && $this->current_ticket_id) {
-            $this->game_id = Ticket::whereKey($this->current_ticket_id)->value('game_id');
-        }
-        if (!$this->game_id) {
-            $this->addError('submit_error', 'Please select a Game (N1/N2) before submitting.');
+        $cachedCross = $this->getCrossOptions();
+
+        // ensure there is at least one entry to submit
+        if (empty($payloadStoredOptions) && ($cachedCross instanceof Collection ? $cachedCross->count() === 0 : empty($cachedCross))) {
+            $this->addError('submit_error', 'Please add at least one entry!');
             return true;
-        }
-
-        // Filter valid draws (still open)
-        $openIds = $this->filterOpenDrawIds($this->selected_draw ?? []);
-        if (empty($openIds)) {
-            $this->addError('submit_error', 'Selected draw has closed. Please pick an upcoming draw.');
-            return true;
-        }
-
-        // normalize
-        $selected_draw_ids = array_map('intval', $openIds);
-        $this->selected_draw = array_map('strval', $openIds);
-
-        $gameIds = [];
-        if (is_array($this->selected_games) && count($this->selected_games) > 0) {
-            $gameIds = array_values(array_map('intval', $this->selected_games));
         } else {
-            $gameIds = [(int) $this->game_id];
+            $this->resetError();
         }
 
-        $result = DB::transaction(function () use ($selected_draw_ids, $gameIds) {
+        // -------------------- LIMITS CHECK --------------------
+        //
+        // Build the incomingSimple and incomingCross arrays *before* validation.
+        // We derive incomingSimple from the digit matrix of stored options,
+        // and incomingCross from the cached cross entries. These mirrors the
+        // later persistence format and match what validateLimits* expects.
+        //
 
-            // ---------- prepare cached options / cross ----------
-            try {
-                $cachedOptions = $this->getOptionsIntoCache();
-                $payloadStoredOptions = $cachedOptions->values()->all();
-            } catch (\Throwable $e) {
-                $payloadStoredOptions = [];
+        // Defensive defaults
+        $incomingSimple = [];
+        $incomingCross = [];
+
+        // Build incomingSimple from stored options (digitMatrix)
+        try {
+            $storedForMatrix = $payloadStoredOptions;
+            // buildDigitMatrixFromStoredOptions returns mapping number => ['A'=>..,'B'=>..,'C'=>..]
+            $digitMatrix = $this->buildDigitMatrixFromStoredOptions($storedForMatrix);
+
+            // Ensure keys a0..c9 exist where appropriate
+            foreach ($digitMatrix as $number => $opts) {
+                $numStr = (string) ((int) $number);
+                $incomingSimple['a' . $numStr] = isset($opts['A']) ? (int)$opts['A'] : 0;
+                $incomingSimple['b' . $numStr] = isset($opts['B']) ? (int)$opts['B'] : 0;
+                $incomingSimple['c' . $numStr] = isset($opts['C']) ? (int)$opts['C'] : 0;
             }
-            $cachedCross = $this->getCrossOptions();
+        } catch (\Throwable $e) {
+            // fallback: safety blank arrays (validation will still run)
+            $incomingSimple = [];
+        }
 
-            // ensure there is at least one entry to submit
-            if (empty($payloadStoredOptions) && ($cachedCross instanceof Collection ? $cachedCross->count() === 0 : empty($cachedCross))) {
-                $this->addError('submit_error', 'Please add at least one entry!');
-                return true;
+        // Build incomingCross from cachedCross
+        try {
+            // cachedCross may be a Collection or array of cross entries.
+            $rows = $cachedCross instanceof Collection ? $cachedCross->toArray() : (array)$cachedCross;
+
+            foreach ($rows as $r) {
+                // Accept both object and array shapes
+                $type = '';
+                $number = null;
+                $amount = 0;
+
+                if (is_array($r)) {
+                    $type = isset($r['type']) ? $r['type'] : (isset($r['type_id']) ? $r['type_id'] : '');
+                    $number = isset($r['number']) ? $r['number'] : (isset($r['num']) ? $r['num'] : null);
+                    $amount = isset($r['amount']) ? $r['amount'] : (isset($r['amt']) ? $r['amt'] : 0);
+                } elseif (is_object($r)) {
+                    $type = $r->type ?? ($r->type_id ?? '');
+                    $number = $r->number ?? ($r->num ?? null);
+                    $amount = $r->amount ?? ($r->amt ?? 0);
+                }
+
+                if ($type === '' || $number === null) continue;
+
+                $type = strtolower((string)$type);
+                $num2 = str_pad((int)$number, 2, '0', STR_PAD_LEFT);
+                $key = $type . $num2;
+                $incomingCross[$key] = (int) ($incomingCross[$key] ?? 0) + (int) $amount;
+            }
+        } catch (\Throwable $e) {
+            $incomingCross = [];
+        }
+
+        // Now determine gameKey safely (default to 'N1')
+        $gameKey = 'N1';
+        if (!empty($gameIds) && is_array($gameIds) && count($gameIds) > 0) {
+            $gid = (int) $gameIds[0];
+
+            // Prefer a stable 'code' or 'key' column if you have it; otherwise fall back to name
+            // Use 'code' if exists, else fallback to 'name'
+            $maybeCode = null;
+            if (Schema::hasColumn('games', 'code')) {
+                $maybeCode = DB::table('games')->where('id', $gid)->value('code');
+            }
+            if ($maybeCode) {
+                $gameKey = strtoupper($maybeCode);
             } else {
-                $this->resetError();
+                $maybeName = DB::table('games')->where('id', $gid)->value('name');
+                $gameKey = $maybeName ? strtoupper(preg_replace('/\s+/', '_', $maybeName)) : 'N1';
             }
-
-            // -------------------- LIMITS CHECK --------------------
-            // Build incoming maps from stored options and cross cache
-            [$incomingSimple, $incomingCross] = $this->buildIncomingSimpleCross($payloadStoredOptions, $cachedCross);
-
-            // determine maximums & group users
-            $limitData = $this->buildLimitOwnerAndGroup($selected_draw_ids);
-
-            $validationErrors = $this->validateLimits($selected_draw_ids, $incomingSimple, $incomingCross, $limitData);
-
-            if (!empty($validationErrors)) {
-                $errMsg = implode("\n", $validationErrors);
-                $this->dispatch('swal', [
-                    'icon'  => 'error',
-                    'title' => 'Oops!',
-                    'text'  => $errMsg,
-                ]);
-                return;
-            }
-
-            // -------------------- WALLET DEBIT --------------------
-            $chargeAmount = $this->computeChargeAmount();
-            if (!empty($chargeAmount) && $chargeAmount > 0) {
-                try {
-                    app(\App\Services\WalletService::class)
-                        ->debit($this->auth_user->id, (float)$chargeAmount, $this->auth_user->id, $this->current_ticket_id ?? null, 'Ticket purchase (pre-reserve)');
-                } catch (\Throwable $e) {
-                    $this->addError('submit_error', 'Wallet error: ' . $e->getMessage());
-                    throw $e; // abort transaction to preserve behaviour
-                }
-            }
-
-            // -------------------- create/update ticket --------------------
-            $this->current_ticket_id = Ticket::updateOrCreate(
-                ['ticket_number' => $this->selected_ticket_number],
-                [
-                    'status'  => 'COMPLETED',
-                    'user_id' => $this->auth_user->id,
-                    'game_id' => $this->game_id,
-                ]
-            )->id;
-
-            // try to populate ticket's primary draw/game and optionally insert draw_detail_game relations
-            try {
-                $ticket = Ticket::find($this->current_ticket_id);
-                $firstDrawId = !empty($selected_draw_ids) ? (int)$selected_draw_ids[0] : null;
-                $firstGameId = !empty($gameIds) ? (int)$gameIds[0] : null;
-
-                if (empty($firstDrawId)) {
-                    $firstOpt = TicketOption::where('ticket_id', $this->current_ticket_id)->orderBy('id')->first();
-                    if ($firstOpt) {
-                        $firstDrawId = (int) $firstOpt->draw_detail_id;
-                    }
-                }
-
-                if (empty($firstGameId) && !empty($firstDrawId)) {
-                    $draw = DrawDetail::find($firstDrawId);
-                    if ($draw && !empty($draw->game_id)) {
-                        $firstGameId = (int) $draw->game_id;
-                    } else {
-                        $optGame = TicketOption::where('ticket_id', $this->current_ticket_id)
-                            ->where('draw_detail_id', $firstDrawId)
-                            ->value('game_id');
-                        if ($optGame) $firstGameId = (int) $optGame;
-                    }
-                }
-
-                $update = [];
-                if ($ticket && empty($ticket->draw_detail_id) && !empty($firstDrawId)) {
-                    $update['draw_detail_id'] = $firstDrawId;
-                }
-                if ($ticket && empty($ticket->game_id) && !empty($firstGameId)) {
-                    $update['game_id'] = $firstGameId;
-                }
-                if (!empty($update)) {
-                    $ticket->update($update);
-                }
-
-                if (!empty($selected_draw_ids) && !empty($gameIds) && Schema::hasTable('draw_detail_game')) {
-                    $insertRows = [];
-                    foreach ($gameIds as $gid) {
-                        foreach ($selected_draw_ids as $did) {
-                            $insertRows[] = [
-                                'draw_detail_id' => (int) $did,
-                                'game_id'        => (int) $gid,
-                                'created_at'     => now(),
-                                'updated_at'     => now(),
-                            ];
-                        }
-                    }
-                    if (!empty($insertRows)) {
-                        DB::table('draw_detail_game')->insertOrIgnore($insertRows);
-                    }
-                }
-            } catch (\Throwable $e) {
-                // keep behaviour: swallow errors here
-            }
-
-            // -------------------- cleanup stale options/cross for open draws ----------------
-            $currentTime = now('Asia/Kolkata')->format('H:i');
-            $drawIds = $this->getActiveDrawIds();
-
-            // Delete options for ticket where draw_details_ids contains an open draw id
-            $this->auth_user->options()
-                ->where('ticket_id', $this->current_ticket_id)
-                ->where(function ($query) use ($drawIds) {
-                    foreach ($drawIds as $id) {
-                        $query->orWhereJsonContains('draw_details_ids', $id);
-                    }
-                })
-                ->delete();
-
-            // Clean user ticketOptions that have draw details currently active / upcoming
-            $this->auth_user->ticketOptions()
-                ->where('ticket_id', $this->current_ticket_id)
-                ->whereHas('DrawDetail', function ($query) use ($currentTime) {
-                    $query->where(function ($q) use ($currentTime) {
-                        $q->where(function ($q1) use ($currentTime) {
-                            $q1->whereRaw("STR_TO_DATE(start_time, '%H:%i') <= STR_TO_DATE(?, '%H:%i')", [$currentTime])
-                                ->whereRaw("STR_TO_DATE(end_time,   '%H:%i') >= STR_TO_DATE(?, '%H:%i')", [$currentTime]);
-                        })->orWhereRaw("STR_TO_DATE(start_time, '%H:%i') > STR_TO_DATE(?, '%H:%i')", [$currentTime]);
-                    });
-                })
-                ->delete();
-
-            // Delete cross entries similarly
-            $this->auth_user->crossAbc()
-                ->where('ticket_id', $this->current_ticket_id)
-                ->where(function ($query) use ($drawIds) {
-                    foreach ($drawIds as $id) {
-                        $query->orWhereJsonContains('draw_details_ids', $id);
-                    }
-                })
-                ->delete();
-
-            $this->auth_user->crossAbcDetail()
-                ->where('ticket_id', $this->current_ticket_id)
-                ->whereHas('drawDetail', function ($query) use ($currentTime) {
-                    $query->where(function ($q) use ($currentTime) {
-                        $q->where(function ($q1) use ($currentTime) {
-                            $q1->whereRaw("STR_TO_DATE(start_time, '%H:%i') <= STR_TO_DATE(?, '%H:%i')", [$currentTime])
-                                ->whereRaw("STR_TO_DATE(end_time,   '%H:%i') >= STR_TO_DATE(?, '%H:%i')", [$currentTime]);
-                        })->orWhereRaw("STR_TO_DATE(start_time, '%H:%i') > STR_TO_DATE(?, '%H:%i')", [$currentTime]);
-                    });
-                })
-                ->delete();
-
-            // -------------------- Save simple ticket options (digitMatrix) --------------------
-            $storedOptions = $payloadStoredOptions;
-            $digitMatrix = $this->buildDigitMatrixFromStoredOptions($storedOptions);
-
-            foreach ($gameIds as $gid) {
-                foreach ($selected_draw_ids as $draw_detail_id) {
-                    foreach ($digitMatrix as $number => $opts) {
-                        $a = $opts['A'] ?? 0;
-                        $b = $opts['B'] ?? 0;
-                        $c = $opts['C'] ?? 0;
-
-                        TicketOption::updateOrCreate(
-                            [
-                                'user_id'        => $this->auth_user->id,
-                                'game_id'        => $gid,
-                                'draw_detail_id' => $draw_detail_id,
-                                'ticket_id'      => $this->current_ticket_id,
-                                'number'         => $number,
-                            ],
-                            [
-                                'a_qty' => $a,
-                                'b_qty' => $b,
-                                'c_qty' => $c,
-                            ]
-                        );
-                    }
-                }
-            }
-
-            // Cross ABC persistence (kept as-is)
-            $this->saveCrossAbc();
-            $this->saveCrossAbcDetail();
-
-            // Recalculate totals on the selected draw_details
-            $drawDetails = DrawDetail::whereIn('id', $selected_draw_ids)->get();
-            foreach ($drawDetails as $detail) {
-                $total_a_qty = (int) $detail->ticketOptions()->sum('a_qty');
-                $total_b_qty = (int) $detail->ticketOptions()->sum('b_qty');
-                $total_c_qty = (int) $detail->ticketOptions()->sum('c_qty');
-
-                $total_qty = $total_a_qty + $total_b_qty + $total_c_qty;
-                $total_cross_amt = (int) $detail->crossAbcDetail()->sum('amount');
-
-                $detail->update([
-                    'total_qty'       => $total_qty,
-                    'total_cross_amt' => $total_cross_amt,
-                ]);
-            }
-
-            // attach user->drawDetails
-            $this->auth_user->drawDetails()->syncWithoutDetaching($selected_draw_ids);
-
-            // Build payload for frontend printing (do NOT emit here)
-            $selectedDrawModels = \App\Models\DrawDetail::whereIn('id', $selected_draw_ids)
-                ->with(['draw', 'draw.game'])
-                ->get();
-
-            // Build a simple array with time + game for the frontend
-            $drawsPayload = $selectedDrawModels->map(function($d) {
-                return [
-                    'time' => method_exists($d, 'formatResultTime') ? $d->formatResultTime() : (string) ($d->start_time ?? ''),
-                    'game' => $d->draw->game->name ?? '',
-                ];
-            })->values()->all();
-
-            // (Optional) keep selectedDraws property so Blade header still works
-            $this->selectedDraws = $selectedDrawModels;
-
-            // Build the rest of payload
-            try {
-                $payloadStoredOptions = $this->getOptionsIntoCache()->values()->all();
-            } catch (\Throwable $e) {
-                $payloadStoredOptions = [];
-            }
-
-            try {
-                $totalForCalc = collect($payloadStoredOptions)->sum('total');
-
-                if (method_exists($this, 'calculateTq')) {
-                    $tq = $this->calculateTq();
-                } else {
-                    $tq = $totalForCalc > 0 ? (int) floor($totalForCalc / self::PRICE) : 0;
-                }
-
-                $total = $totalForCalc;
-                $drawCount = is_countable($this->selected_draw) ? count($this->selected_draw) : 1;
-
-                if (method_exists($this, 'calculateFinalTotal')) {
-                    $finalTotal = $this->calculateFinalTotal();
-                } else {
-                    $finalTotal = $total * max(1, $drawCount);
-                }
-
-                $labels = $this->selected_game_labels ?? $this->selected_games ?? [];
-                $times = is_array($this->selected_times) ? $this->selected_times : ($this->selected_times ? [$this->selected_times] : []);
-
-                $payload = [
-                    'ticket_number'  => $this->selected_ticket_number ?? ($this->selected_ticket->ticket_number ?? null),
-                    'stored_options' => $payloadStoredOptions,
-                    'tq'             => $tq,
-                    'total'          => $total,
-                    'finalTotal'     => $finalTotal,
-                    'draw_count'     => $drawCount,
-                    'labels'         => $labels,
-                    'times'          => $times,
-                    'draws'          => $drawsPayload,
-                ];
-            } catch (\Throwable $e) {
-                $payload = [];
-            }
-
-            if ($this->is_edit_mode) {
-                return redirect()->route('dashboard');
-            }
-
-            return $payload;
-        });
-
-        // === AFTER TRANSACTION: only emit/dispatch when transaction returned a payload array ===
-        if ($result instanceof \Illuminate\Http\RedirectResponse) {
-            return $result;
         }
 
-        if (is_array($result) && !empty($result)) {
-            $payload = $result;
+        // Build per-game limit data and validate using game-aware functions
+        $limitData = $this->buildLimitOwnerAndGroupForGame($selected_draw_ids, $gameKey);
+        $validationErrors = $this->validateLimitsForGame($selected_draw_ids, $incomingSimple, $incomingCross, $limitData, $gameKey);
 
-            // emit ticketSubmitted event with payload (frontend handles printing)
-            $this->dispatch('ticketSubmitted', $payload);
-            // Fire DOM event for frontend print
-            $this->dispatch('ticket-submitted', payload: $payload);
-
-            $this->dispatch('refresh-window');
-
-            return true;
+        if (!empty($validationErrors)) {
+            $errMsg = implode("\n", $validationErrors);
+            $this->dispatch('swal', [
+                'icon'  => 'error',
+                'title' => 'Oops!',
+                'text'  => $errMsg,
+            ]);
+            return;
         }
+
+        // -------------------- WALLET DEBIT --------------------
+        $chargeAmount = $this->computeChargeAmount();
+        if (!empty($chargeAmount) && $chargeAmount > 0) {
+            try {
+                app(\App\Services\WalletService::class)
+                    ->debit($this->auth_user->id, (float)$chargeAmount, $this->auth_user->id, $this->current_ticket_id ?? null, 'Ticket purchase (pre-reserve)');
+            } catch (\Throwable $e) {
+                $this->addError('submit_error', 'Wallet error: ' . $e->getMessage());
+                throw $e; // abort transaction to preserve behaviour
+            }
+        }
+
+        // -------------------- create/update ticket --------------------
+        $this->current_ticket_id = Ticket::updateOrCreate(
+            ['ticket_number' => $this->selected_ticket_number],
+            [
+                'status'  => 'COMPLETED',
+                'user_id' => $this->auth_user->id,
+                'game_id' => $this->game_id,
+            ]
+        )->id;
+
+        // try to populate ticket's primary draw/game and optionally insert draw_detail_game relations
+        try {
+            $ticket = Ticket::find($this->current_ticket_id);
+            $firstDrawId = !empty($selected_draw_ids) ? (int)$selected_draw_ids[0] : null;
+            $firstGameId = !empty($gameIds) ? (int)$gameIds[0] : null;
+
+            if (empty($firstDrawId)) {
+                $firstOpt = TicketOption::where('ticket_id', $this->current_ticket_id)->orderBy('id')->first();
+                if ($firstOpt) {
+                    $firstDrawId = (int) $firstOpt->draw_detail_id;
+                }
+            }
+
+            if (empty($firstGameId) && !empty($firstDrawId)) {
+                $draw = DrawDetail::find($firstDrawId);
+                if ($draw && !empty($draw->game_id)) {
+                    $firstGameId = (int) $draw->game_id;
+                } else {
+                    $optGame = TicketOption::where('ticket_id', $this->current_ticket_id)
+                        ->where('draw_detail_id', $firstDrawId)
+                        ->value('game_id');
+                    if ($optGame) $firstGameId = (int) $optGame;
+                }
+            }
+
+            $update = [];
+            if ($ticket && empty($ticket->draw_detail_id) && !empty($firstDrawId)) {
+                $update['draw_detail_id'] = $firstDrawId;
+            }
+            if ($ticket && empty($ticket->game_id) && !empty($firstGameId)) {
+                $update['game_id'] = $firstGameId;
+            }
+            if (!empty($update)) {
+                $ticket->update($update);
+            }
+
+            if (!empty($selected_draw_ids) && !empty($gameIds) && Schema::hasTable('draw_detail_game')) {
+                $insertRows = [];
+                foreach ($gameIds as $gid) {
+                    foreach ($selected_draw_ids as $did) {
+                        $insertRows[] = [
+                            'draw_detail_id' => (int) $did,
+                            'game_id'        => (int) $gid,
+                            'created_at'     => now(),
+                            'updated_at'     => now(),
+                        ];
+                    }
+                }
+                if (!empty($insertRows)) {
+                    DB::table('draw_detail_game')->insertOrIgnore($insertRows);
+                }
+            }
+        } catch (\Throwable $e) {
+            // keep behaviour: swallow errors here
+        }
+
+        // -------------------- cleanup stale options/cross for open draws ----------------
+        $currentTime = now('Asia/Kolkata')->format('H:i');
+        $drawIds = $this->getActiveDrawIds();
+
+        // Delete options for ticket where draw_details_ids contains an open draw id
+        $this->auth_user->options()
+            ->where('ticket_id', $this->current_ticket_id)
+            ->where(function ($query) use ($drawIds) {
+                foreach ($drawIds as $id) {
+                    $query->orWhereJsonContains('draw_details_ids', $id);
+                }
+            })
+            ->delete();
+
+        // Clean user ticketOptions that have draw details currently active / upcoming
+        $this->auth_user->ticketOptions()
+            ->where('ticket_id', $this->current_ticket_id)
+            ->whereHas('DrawDetail', function ($query) use ($currentTime) {
+                $query->where(function ($q) use ($currentTime) {
+                    $q->where(function ($q1) use ($currentTime) {
+                        $q1->whereRaw("STR_TO_DATE(start_time, '%H:%i') <= STR_TO_DATE(?, '%H:%i')", [$currentTime])
+                            ->whereRaw("STR_TO_DATE(end_time,   '%H:%i') >= STR_TO_DATE(?, '%H:%i')", [$currentTime]);
+                    })->orWhereRaw("STR_TO_DATE(start_time, '%H:%i') > STR_TO_DATE(?, '%H:%i')", [$currentTime]);
+                });
+            })
+            ->delete();
+
+        // Delete cross entries similarly
+        $this->auth_user->crossAbc()
+            ->where('ticket_id', $this->current_ticket_id)
+            ->where(function ($query) use ($drawIds) {
+                foreach ($drawIds as $id) {
+                    $query->orWhereJsonContains('draw_details_ids', $id);
+                }
+            })
+            ->delete();
+
+        $this->auth_user->crossAbcDetail()
+            ->where('ticket_id', $this->current_ticket_id)
+            ->whereHas('drawDetail', function ($query) use ($currentTime) {
+                $query->where(function ($q) use ($currentTime) {
+                    $q->where(function ($q1) use ($currentTime) {
+                        $q1->whereRaw("STR_TO_DATE(start_time, '%H:%i') <= STR_TO_DATE(?, '%H:%i')", [$currentTime])
+                            ->whereRaw("STR_TO_DATE(end_time,   '%H:%i') >= STR_TO_DATE(?, '%H:%i')", [$currentTime]);
+                    })->orWhereRaw("STR_TO_DATE(start_time, '%H:%i') > STR_TO_DATE(?, '%H:%i')", [$currentTime]);
+                });
+            })
+            ->delete();
+
+        // -------------------- Save simple ticket options (digitMatrix) --------------------
+        $storedOptions = $payloadStoredOptions;
+        $digitMatrix = $this->buildDigitMatrixFromStoredOptions($storedOptions);
+
+        foreach ($gameIds as $gid) {
+            foreach ($selected_draw_ids as $draw_detail_id) {
+                foreach ($digitMatrix as $number => $opts) {
+                    $a = $opts['A'] ?? 0;
+                    $b = $opts['B'] ?? 0;
+                    $c = $opts['C'] ?? 0;
+
+                    TicketOption::updateOrCreate(
+                        [
+                            'user_id'        => $this->auth_user->id,
+                            'game_id'        => $gid,
+                            'draw_detail_id' => $draw_detail_id,
+                            'ticket_id'      => $this->current_ticket_id,
+                            'number'         => $number,
+                        ],
+                        [
+                            'a_qty' => $a,
+                            'b_qty' => $b,
+                            'c_qty' => $c,
+                        ]
+                    );
+                }
+            }
+        }
+
+        // Cross ABC persistence (kept as-is)
+        $this->saveCrossAbc();
+        $this->saveCrossAbcDetail();
+
+        // Recalculate totals on the selected draw_details
+        $drawDetails = DrawDetail::whereIn('id', $selected_draw_ids)->get();
+        foreach ($drawDetails as $detail) {
+            $total_a_qty = (int) $detail->ticketOptions()->sum('a_qty');
+            $total_b_qty = (int) $detail->ticketOptions()->sum('b_qty');
+            $total_c_qty = (int) $detail->ticketOptions()->sum('c_qty');
+
+            $total_qty = $total_a_qty + $total_b_qty + $total_c_qty;
+            $total_cross_amt = (int) $detail->crossAbcDetail()->sum('amount');
+
+            $detail->update([
+                'total_qty'       => $total_qty,
+                'total_cross_amt' => $total_cross_amt,
+            ]);
+        }
+
+        // attach user->drawDetails
+        $this->auth_user->drawDetails()->syncWithoutDetaching($selected_draw_ids);
+
+        // Build payload for frontend printing (do NOT emit here)
+        $selectedDrawModels = \App\Models\DrawDetail::whereIn('id', $selected_draw_ids)
+            ->with(['draw', 'draw.game'])
+            ->get();
+
+        // Build a simple array with time + game for the frontend
+        $drawsPayload = $selectedDrawModels->map(function($d) {
+            return [
+                'time' => method_exists($d, 'formatResultTime') ? $d->formatResultTime() : (string) ($d->start_time ?? ''),
+                'game' => $d->draw->game->name ?? '',
+            ];
+        })->values()->all();
+
+        // (Optional) keep selectedDraws property so Blade header still works
+        $this->selectedDraws = $selectedDrawModels;
+
+        // Build the rest of payload
+        try {
+            $payloadStoredOptions = $this->getOptionsIntoCache()->values()->all();
+        } catch (\Throwable $e) {
+            $payloadStoredOptions = [];
+        }
+
+        try {
+            $totalForCalc = collect($payloadStoredOptions)->sum('total');
+
+            if (method_exists($this, 'calculateTq')) {
+                $tq = $this->calculateTq();
+            } else {
+                $tq = $totalForCalc > 0 ? (int) floor($totalForCalc / self::PRICE) : 0;
+            }
+
+            $total = $totalForCalc;
+            $drawCount = is_countable($this->selected_draw) ? count($this->selected_draw) : 1;
+
+            if (method_exists($this, 'calculateFinalTotal')) {
+                $finalTotal = $this->calculateFinalTotal();
+            } else {
+                $finalTotal = $total * max(1, $drawCount);
+            }
+
+            $labels = $this->selected_game_labels ?? $this->selected_games ?? [];
+            $times = is_array($this->selected_times) ? $this->selected_times : ($this->selected_times ? [$this->selected_times] : []);
+
+            $payload = [
+                'ticket_number'  => $this->selected_ticket_number ?? ($this->selected_ticket->ticket_number ?? null),
+                'stored_options' => $payloadStoredOptions,
+                'tq'             => $tq,
+                'total'          => $total,
+                'finalTotal'     => $finalTotal,
+                'draw_count'     => $drawCount,
+                'labels'         => $labels,
+                'times'          => $times,
+                'draws'          => $drawsPayload,
+            ];
+        } catch (\Throwable $e) {
+            $payload = [];
+        }
+
+        if ($this->is_edit_mode) {
+            return redirect()->route('dashboard');
+        }
+
+        return $payload;
+    });
+
+    // === AFTER TRANSACTION: only emit/dispatch when transaction returned a payload array ===
+    if ($result instanceof \Illuminate\Http\RedirectResponse) {
+        return $result;
+    }
+
+    if (is_array($result) && !empty($result)) {
+        $payload = $result;
+
+        // emit ticketSubmitted event with payload (frontend handles printing)
+        $this->dispatch('ticketSubmitted', $payload);
+        // Fire DOM event for frontend print
+        $this->dispatch('ticket-submitted', payload: $payload);
+
+        $this->dispatch('refresh-window');
 
         return true;
     }
+
+    return true;
+}
+
 
     /**
      * Write back options to cache, mark status completed and refresh UI
@@ -845,6 +922,167 @@ trait OptonsOperation
         }
         return $expandedIncomingCross;
     }
+
+
+    // new limit method game wise like N1 and N2 
+    
+    /**
+ * Game-aware version: returns same keys as old buildLimitOwnerAndGroup plus game info.
+ * Non-destructive: does NOT change existing functions.
+ *
+ * @param array $selected_draw_ids
+ * @param string $gameKey e.g. 'N1' or 'N2'
+ * @return array
+ */
+protected function buildLimitOwnerAndGroupForGame(array $selected_draw_ids, string $gameKey = 'N1'): array
+{
+    $gameKey = strtoupper($gameKey ?? 'N1');
+
+    $currentUser = auth()->user();
+    $limitOwner = $currentUser;
+
+    if (!empty($currentUser->created_by)) {
+        $maybeShop = DB::table('users')->where('id', $currentUser->created_by)->first();
+        if ($maybeShop) $limitOwner = $maybeShop;
+    }
+
+    // optional admin-level settings overrides per-game
+    $settingsMaxTqKey = 'maximum_tq_' . $gameKey;
+    $settingsMaxCrossKey = 'maximum_cross_amount_' . $gameKey;
+
+    $maxTqFromSettings = Schema::hasTable('settings') ? DB::table('settings')->where('key', $settingsMaxTqKey)->value('value') : null;
+    $maxCrossFromSettings = Schema::hasTable('settings') ? DB::table('settings')->where('key', $settingsMaxCrossKey)->value('value') : null;
+
+    // 🔥 Fix: resolve game_id before query
+    $gid = DB::table('games')->where('name', $gameKey)->value('id');
+
+    // Try owner/shopkeeper per-game limits from user_game_limits table (if exists)
+    $ownerGameLimit = null;
+    if (Schema::hasTable('user_game_limits') && $gid) {
+        $ownerGameLimit = DB::table('user_game_limits')
+            ->where('user_id', $limitOwner->id)
+            ->where('game_id', $gid)
+            ->first();
+    }
+
+    // Fallbacks
+    $defaultTq = 50;
+    $defaultCross = 50;
+
+    $maximum_tq = (int) (
+        $maxTqFromSettings ??
+        ($ownerGameLimit->maximum_tq ?? ($limitOwner->{"maximum_tq_".strtolower($gameKey)} ?? ($limitOwner->maximum_tq ?? $defaultTq)))
+    );
+
+    $maximum_cross_amt = (int) (
+        $maxCrossFromSettings ??
+        ($ownerGameLimit->maximum_cross_amount ?? ($limitOwner->{"maximum_cross_amount_".strtolower($gameKey)} ?? ($limitOwner->maximum_cross_amount ?? $defaultCross)))
+    );
+
+    $maximum_source = [
+        'maximum_tq' => $maxTqFromSettings ? 'settings' :
+                        ($ownerGameLimit ? 'user_game_limits' : ($limitOwner->id === $currentUser->id ? 'user' : 'shopkeeper')),
+        'maximum_cross_amount' => $maxCrossFromSettings ? 'settings' :
+                        ($ownerGameLimit ? 'user_game_limits' : ($limitOwner->id === $currentUser->id ? 'user' : 'shopkeeper')),
+    ];
+
+    $groupUserIds = [$limitOwner->id];
+    $childIds = DB::table('users')->where('created_by', $limitOwner->id)->pluck('id')->toArray();
+    if (!empty($childIds)) {
+        $groupUserIds = array_values(array_unique(array_merge($groupUserIds, $childIds)));
+    }
+
+    return [
+        'currentUser' => $currentUser,
+        'limitOwner' => $limitOwner,
+        'maximum_tq' => $maximum_tq,
+        'maximum_cross_amt' => $maximum_cross_amt,
+        'maximum_source' => $maximum_source,
+        'groupUserIds' => $groupUserIds,
+        'game_key' => $gameKey,
+        'owner_game_limit_row' => $ownerGameLimit ? (array) $ownerGameLimit : null,
+    ];
+}
+
+
+/**
+ * Game-aware validateLimits - mirrors the old validateLimits but accepts $gameKey param
+ */
+protected function validateLimitsForGame(array $selected_draw_ids, array $incomingSimple, array $incomingCross, array $limitData, string $gameKey = 'N1'): array
+{
+    $errors = [];
+    $gameKey = strtoupper($gameKey ?? ($limitData['game_key'] ?? 'N1'));
+
+    // Fetch existing sums in bulk (same queries as original)
+    $simpleRows = DB::table('ticket_options')
+        ->whereIn('draw_detail_id', $selected_draw_ids)
+        ->whereIn('user_id', $limitData['groupUserIds'])
+        ->select('draw_detail_id', 'number',
+            DB::raw('SUM(COALESCE(a_qty,0)) as sum_a'),
+            DB::raw('SUM(COALESCE(b_qty,0)) as sum_b'),
+            DB::raw('SUM(COALESCE(c_qty,0)) as sum_c')
+        )
+        ->groupBy('draw_detail_id', 'number')
+        ->get();
+
+    $existingSimplePerDraw = [];
+    foreach ($simpleRows as $r) {
+        $drawId = (int)$r->draw_detail_id;
+        $num = (string)((int)$r->number);
+        $existingSimplePerDraw[$drawId]['a' . $num] = (int)$r->sum_a;
+        $existingSimplePerDraw[$drawId]['b' . $num] = (int)$r->sum_b;
+        $existingSimplePerDraw[$drawId]['c' . $num] = (int)$r->sum_c;
+    }
+
+    $crossRows = DB::table('cross_abc_details')
+        ->whereIn('draw_detail_id', $selected_draw_ids)
+        ->whereIn('user_id', $limitData['groupUserIds'])
+        ->select('draw_detail_id','type','number', DB::raw('SUM(amount) as total_amt'))
+        ->groupBy('draw_detail_id','type','number')
+        ->get();
+
+    $existingCrossPerDraw = [];
+    foreach ($crossRows as $r) {
+        $drawId = (int)$r->draw_detail_id;
+        $type = strtolower((string)$r->type);
+        $num2 = str_pad((int)$r->number, 2, '0', STR_PAD_LEFT);
+        $key = $type . $num2;
+        $existingCrossPerDraw[$drawId][$key] = (int)$r->total_amt;
+    }
+
+    foreach ($selected_draw_ids as $detailIdToCheck) {
+        $existingSimple = $existingSimplePerDraw[$detailIdToCheck] ?? [];
+
+        for ($d = 0; $d <= 9; $d++) {
+            $k = 'a' . $d; if (!isset($existingSimple[$k])) $existingSimple[$k] = 0;
+            $k = 'b' . $d; if (!isset($existingSimple[$k])) $existingSimple[$k] = 0;
+            $k = 'c' . $d; if (!isset($existingSimple[$k])) $existingSimple[$k] = 0;
+        }
+
+        $existingCross = $existingCrossPerDraw[$detailIdToCheck] ?? [];
+
+        foreach ($incomingSimple as $key => $incomingQty) {
+            $incomingQty = (int)$incomingQty;
+            $existing = $existingSimple[$key] ?? 0;
+            if ($existing + $incomingQty > $limitData['maximum_tq']) {
+                $allowed = max(0, $limitData['maximum_tq'] - $existing);
+                $errors[] = strtoupper($key) . " limit exceeded for draw_detail {$detailIdToCheck} (Game {$gameKey}). Current: {$existing}, Incoming: {$incomingQty}, Max: {$limitData['maximum_tq']}, Allowed add: {$allowed}";
+            }
+        }
+
+        foreach ($incomingCross as $key => $incomingAmt) {
+            $incomingAmt = (int)$incomingAmt;
+            $existing = $existingCross[$key] ?? 0;
+            if ($existing + $incomingAmt > $limitData['maximum_cross_amt']) {
+                $allowed = max(0, $limitData['maximum_cross_amt'] - $existing);
+                $errors[] = strtoupper($key) . " limit exceeded for draw_detail {$detailIdToCheck} (Game {$gameKey}). Current: {$existing}, Incoming: {$incomingAmt}, Max: {$limitData['maximum_cross_amt']}, Allowed add: {$allowed}";
+            }
+        }
+    }
+
+    return $errors;
+}
+
 
     /**
      * Build limit owner, group user ids and maximums for later checking.

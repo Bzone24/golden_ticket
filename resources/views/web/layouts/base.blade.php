@@ -26,6 +26,8 @@
     @stack('scripts')
     @stack('styles')
     @livewireScripts
+    @vite(['resources/js/app.js'])
+
     <script>
          document.addEventListener('livewire:init', () => {
 

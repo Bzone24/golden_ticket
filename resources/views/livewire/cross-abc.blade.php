@@ -1,4 +1,4 @@
-<div class="card shadow-lg border-0 rounded-3 bg-dark text-light py-0 h-80">
+<div class="card shadow-lg border-0 rounded-3 bg-dark text-light py-0 mb-1" style="height: 550px;">
     <!-- Header -->
     <div class="card-header bg-gradient text-white rounded-top " style="background:#431549;">
         <h3 class="text-center mb-0 py-0">
@@ -17,7 +17,7 @@
                 
                 wire:model.defer="cross_abc_input"
                     x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-abc-qty'))"
-                    class="form-control bg-light text-light border-warning cross-input cross_number"
+                    class="form-control bg-light text-dark border-warning cross-input cross_number"
                     placeholder="Enter ABC">
                 @error('cross_abc_input')
                     <span class="text-danger small">{{ $message }}</span>
@@ -28,7 +28,7 @@
                 <label class="form-label text-light fw-bold" for="cross_qty">Amt</label>
                 <input type="text" id="cross_qty" wire:model.defer="cross_abc_amt"
                     x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-abc-combination'))"
-                    class="form-control bg-light text-light border-warning cross-input mynumber" placeholder="Enter Amt">
+                    class="form-control bg-light text-dark border-warning cross-input mynumber" placeholder="Enter Amt">
                 @error('cross_abc_amt')
                     <span class="text-danger small">{{ $message }}</span>
                 @enderror
@@ -39,7 +39,7 @@
                 <!-- final Enter still calls Livewire save method (unchanged) -->
                 <input type="text" id="cross_combination" wire:model.defer="cross_combination"
                     wire:keydown.enter.prevent="enterKeyPressOnCrossAbc('focus-cross-a','cross_combination')"
-                    class="form-control bg-light text-light border-warning cross-input" placeholder="Enter Combination">
+                    class="form-control bg-light text-dark border-warning cross-input" placeholder="Enter Combination">
                 @error('cross_combination')
                     <span class="text-danger small">{{ $message }}</span>
                 @enderror
@@ -375,6 +375,12 @@ try { $el[0].dispatchEvent(new Event('change', { bubbles: true })); } catch (e) 
                     left: 'cross_bc_amt',
                     up: 'cross_ac'
                 }
+
+                .cross-body, 
+                 {
+    height: 600px;
+    overflow-y: auto;
+}
             };
 
             

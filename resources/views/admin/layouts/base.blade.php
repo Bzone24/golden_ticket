@@ -88,6 +88,8 @@
 @include('admin.includes.js-plguins')
  @stack('custom-js')
    @livewireScripts
+   @vite(['resources/js/app.js'])
+
    <script>
    document.getElementById("sidebarToggleBtn").addEventListener("click", function () {
     const sidebar = document.querySelector(".left-sidebar");

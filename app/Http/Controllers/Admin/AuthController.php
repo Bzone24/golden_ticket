@@ -6,6 +6,7 @@ use App\Http\Controllers\Controller;
 use App\Http\Requests\LoginRequest;
 use App\Models\User;
 use Illuminate\Support\Facades\Auth;
+use Illuminate\Support\Facades\Hash;
 
 class AuthController extends Controller
 {
@@ -15,24 +16,26 @@ class AuthController extends Controller
     }
 
     public function login(LoginRequest $request)
-    {
-        $credentials = $request->only('email', 'password');
+{
+    $login = $request->input('login');
+    $password = $request->input('password');
 
-        if (!Auth::attempt($credentials)) {
-            return back()->withErrors(['email' => 'The provided credentials do not match our records. '])->withInput();
-        }
-        
-        $request->session()->regenerate();  
+    $user = User::where('username', $login)->orWhere('login_id', $login)->first();
 
-        $user = Auth::user();
-        if ($user->hasRole('admin') || $user->hasRole('master')) {
-            return redirect()->route('admin.dashboard');
-        } elseif ($user->hasRole('shopkeeper')) {
-            return redirect()->route('admin.dashboard');
-        } else {
-            return redirect()->route('user.dashboard');
-        }
-
-        // return redirect()->route('admin.dashboard');
+    if (! $user || ! Hash::check($password, $user->password)) {
+        return back()->withErrors(['login' => 'Invalid credentials'])->withInput();
     }
+
+    Auth::login($user, $request->filled('remember'));
+    $request->session()->regenerate();
+
+    // keep your role redirect
+    if ($user->hasRole('admin') || $user->hasRole('master')) {
+        return redirect()->route('admin.dashboard');
+    } elseif ($user->hasRole('shopkeeper')) {
+        return redirect()->route('admin.dashboard');
+    } else {
+        return redirect()->route('user.dashboard');
+    }
+}
 }

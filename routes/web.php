@@ -30,14 +30,17 @@ Route::middleware('auth:web')->group(function () {
         Route::get('cross-bc-list', 'getCrossBcList')->name('dashboard.draw.cross.bc.list');
     });
 
-    // Logout User
-    Route::get('logout', function () {
-        Auth::logout();
-        // request()->session()->invalidate();
-        request()->session()->regenerateToken();
+    Route::get('/refresh-csrf', function () {
+    return response()->json(['token' => csrf_token()]);
+})->middleware('auth')->name('refresh.csrf');
 
-        return redirect('/');
-    })->name('logout');
+    // Logout User
+    Route::post('logout', function () {
+    Auth::logout();
+    request()->session()->invalidate();
+    request()->session()->regenerateToken();
+    return redirect('/');
+})->name('logout');
 });
 
 /*

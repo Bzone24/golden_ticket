@@ -1,4 +1,4 @@
-<div class="card shadow-lg border-0 rounded-3 bg-dark text-light h-100" >
+<div class="card shadow-lg border-0 rounded-3 bg-dark text-light mb-1" style="height: 550px;" >
     <!-- Header -->
     <div class="card-header bg-gradient text-white rounded-top" style="background:#431549;">
         <h3 class="text-center mb-0">

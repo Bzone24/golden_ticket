@@ -1,11 +1,32 @@
-    <div class="card shadow-lg border-0 rounded-3  text-light h-90 py-0 mb-5" style="background:#43233b;">
+    <div class="card shadow-lg border-0 rounded-3  text-light py-0 mb-1" style="background:#43233b; height: 550px;">
         <div class="card-header   text-light rounded-top" style="background:#431549;">
             <h5 class="mb-0 py-0">
                 <i class="bi bi-calendar-week me-2"></i> Draw List
             </h5>
         </div>
 
-  <div class="mb-0 mt-3 ms-3 d-flex align-items-center">
+      <div class="mb-2 mt-1 ms-2">
+    <label class="fw-bold me-1">Filter by Game:</label>
+    <button 
+        wire:click="applyGameFilter('both')" 
+        class="btn btn-lg me-1 {{ $gameFilter === 'both' ? 'btn-primary' : 'btn-outline-primary' }}">
+        Both
+    </button>
+    <button 
+        wire:click="applyGameFilter('N1')" 
+        class="btn btn-lg me-1 {{ $gameFilter === 'N1' ? 'btn-warning' : 'btn-outline-warning' }}">
+        N1
+    </button>
+    <button 
+        wire:click="applyGameFilter('N2')" 
+        class="btn btn-lg me-1 {{ $gameFilter === 'N2' ? 'btn-success' : 'btn-outline-success' }}">
+        N2
+    </button>
+</div>
+
+
+
+  <div class="mb-2 mt-3 ms-3 d-flex align-items-center">
     <label for="drawCount" class="me-2 ">Select Next Draws:</label>
     <input type="number"
            id="drawCount"
@@ -33,7 +54,7 @@
             <div class="list-group list-group-flush overflow-auto mb-2" style="height:380px; font-size: larger;">
 
                 <!-- TOP: Game checkboxes (N1, N2) -->
-                <div class="list-group-item border-1 py-2 text-light position-sticky top-0 z-1" style="background:#43233b;" 
+                <div class="list-group-item  py-2 text-light position-sticky top-0 z-1" style="background:#43233b;" 
                     wire:key="game-select-header"
                     style="border-bottom: 1px solid rgba(240, 226, 226, 0.951);">
                 </div>

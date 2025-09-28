@@ -21,6 +21,8 @@ class AddTicketForm extends Component
 
     public $auth_user;
 
+    public string $gameFilter = 'both';
+
     // Slip display state
     public array $selected_game_labels = [];
     public array $selected_games = [];  // bound to N1/N2 checkboxes
@@ -59,6 +61,8 @@ class AddTicketForm extends Component
     public $current_ticket_id = '';
     public $draw_detail_id = '';
 
+    
+
     public $is_edit_mode = false;
 
     public $abc;
@@ -86,6 +90,14 @@ public $drawCount;
      *  Utility helpers
      * ------------------------- 
      */
+
+public function applyGameFilter(string $filter): void
+{
+    $allowed = ['both', 'N1', 'N2'];
+    $this->gameFilter = in_array($filter, $allowed) ? $filter : 'both';
+    $this->refreshDraw(); // will call loadDraws() again with the filter applied
+}
+
     private function refreshSelectedTimes(): void
     {
         $ids = $this->selected_draw ?? [];
@@ -143,39 +155,10 @@ public $drawCount;
         }
     }
 
-//    private function ensureCurrentDrawSelected(): void
-// {
-//     if (empty($this->selected_draw) && !empty($this->draw_list)) {
-//         // Get allowed game IDs for this user
-//         $allowedGameIds = $this->auth_user
-//             ? $this->auth_user->games->pluck('id')->toArray()
-//             : [];
 
-//         // Find the first draw that matches user's allowed games
-//         $current = collect($this->draw_list)
-//             ->first(fn($d) => in_array($d->draw->game->id, $allowedGameIds));
-
-//         // Fallback: if no match, just take the first draw
-//         if (!$current) {
-//             $current = $this->draw_list[0];
-//         }
-
-//         if ($current) {
-//             $this->selected_draw = [(string) $current->id];
-//             $this->setStoreOptions($this->selected_draw);
-//             $this->getTimes();
-//         }
-//     }
-// }
-
-
-    /* -------------------------
-     *  Lifecycle
   
   
   
-    * ------------------------- 
-     */
 
 private function ensureCurrentDrawSelected(): void
 {

@@ -28,14 +28,27 @@
                 <p class="text-center">Hello, Admin</p>
                 <form action="{{ route('admin.login') }}" method="POST">
                  @csrf
-                  <div class="mb-3">
-                    <label for="exampleInputEmail1" class="form-label">Email</label>
-                    <input type="email" class="form-control" name="email" id="exampleInputEmail1" value="{{ old('email') }}" aria-describedby="emailHelp">
-                    @error('email')
-                       <div class="text-danger" id="passwordError"><i class="fa fa-exclamation-triangle text-danger"></i>
-                        {{ $message }}</div>
-                    @enderror
-                  </div>
+                 <div class="mb-3">
+    <label for="exampleInputLogin1" class="form-label">Username or Login ID</label>
+    <input
+        type="text"
+        class="form-control"
+        name="login"
+        id="exampleInputLogin1"
+        value="{{ old('login') }}"
+        placeholder="username or ABC101"
+        aria-describedby="loginHelp"
+        required
+        autofocus
+    >
+    @error('login')
+       <div class="text-danger" id="passwordError">
+         <i class="fa fa-exclamation-triangle text-danger"></i>
+         {{ $message }}
+       </div>
+    @enderror
+</div>
+
                   <div class="mb-4">
                     <label for="exampleInputPassword1" class="form-label">Password</label>
                     <input type="password" class="form-control" name="password" id="exampleInputPassword1">

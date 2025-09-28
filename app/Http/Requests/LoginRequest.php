@@ -19,11 +19,18 @@ class LoginRequest extends FormRequest
      *
      * @return array<string, \Illuminate\Contracts\Validation\ValidationRule|array<mixed>|string>
      */
-    public function rules(): array
-    {
-        return [
-            'email' => 'required|email',
-            'password' => 'required|string|min:6',
-        ];
-    }
+   public function rules(): array
+{
+    return [
+        'login' => 'required|string',
+        'password' => 'required|string|min:6',
+    ];
+}
+
+public function attributes()
+{
+    return [
+        'login' => 'Username or Login ID',
+    ];
+}
 }

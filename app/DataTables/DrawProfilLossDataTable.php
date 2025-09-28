@@ -358,6 +358,11 @@ class DrawProfilLossDataTable extends DataTable
                     }
                 }
 
+                 // Other roles: just show result (no button)
+    if (!empty($draw_detail->claim_a) || !empty($draw_detail->claim_b) || !empty($draw_detail->claim_c)) {
+        return "<div class='text-center fw-bold text-success'>{$this->getResult($draw_detail)}</div>";
+    }
+
                 return '--';
             })
             ->rawColumns(['game_id', 'end_time', 'tq', 'cross_amt', 'p_and_l', 'action', 'cross_claim', 'claim']);
