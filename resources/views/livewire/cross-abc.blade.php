@@ -376,11 +376,7 @@ try { $el[0].dispatchEvent(new Event('change', { bubbles: true })); } catch (e) 
                     up: 'cross_ac'
                 }
 
-                .cross-body, 
-                 {
-    height: 600px;
-    overflow-y: auto;
-}
+         
             };
 
             

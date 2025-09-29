@@ -12,8 +12,7 @@ trait TicketFormAction
     use OptonsOperation;
 
     public array $selected_draw_ids = [];
-    
-
+   
     public $submit_error = '';
 
     public string $selected_ticket_number = '';
@@ -21,7 +20,6 @@ trait TicketFormAction
     protected $table = 'ticket_options';
     
     public $auto_select_count;
-
 
     /**
      * Parse a time string that may be "h:i a", "H:i", or "H:i:s" into a Carbon instance
@@ -43,7 +41,6 @@ trait TicketFormAction
         // Last resort
         return \Carbon\Carbon::parse($time, $tz);
     }
-
     /**
      * Keep only selected draws that are still open at the current moment.
      */
@@ -91,9 +88,7 @@ trait TicketFormAction
             $this->selected_draw_id = $this->draw_detail_id;
             $this->sanitizeSelectedDrawDB(); // keep only open draws
         }
-    }
-
-    
+    }   
 
     #[On('draw-selected')]
    public function handleDrawSelected($draw_detail_id, $isChecked)
@@ -148,9 +143,7 @@ trait TicketFormAction
     $this->setStoreOptions($this->selected_draw, true);
 }
 }
-
-
-   
+ 
     // select ticket number
   public function handleTicketSelect($ticket_number)
 {
@@ -260,8 +253,6 @@ $this->selectedDraws = \App\Models\DrawDetail::with('draw.game')
     $this->loadAbcData(true);
     $this->dispatch('checked-draws', drawIds: $this->selected_draw);
 }
-
-
 
     public function getTimes()
     {

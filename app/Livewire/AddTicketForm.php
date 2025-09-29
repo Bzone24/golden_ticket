@@ -154,12 +154,7 @@ public function applyGameFilter(string $filter): void
             }
         }
     }
-
-
   
-  
-  
-
 private function ensureCurrentDrawSelected(): void
 {
     if (empty($this->selected_draw) && !empty($this->draw_list)) {

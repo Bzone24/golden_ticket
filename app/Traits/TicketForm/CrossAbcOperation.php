@@ -443,9 +443,9 @@ trait CrossAbcOperation
                 //     'sometimes', 'integer', 'min:1',
                 // ]], [], ['cross_c' => 'C']);
 
-                // $this->validate(['cross_single_amount' => [
-                //     'required', 'integer', 'min:1',
-                // ]], [], ['cross_single_amount' => 'Amount']);
+                $this->validate(['cross_single_amount' => [
+                    'required', 'integer', 'min:5', 'multiple_of:5',
+                ]], [], ['cross_single_amount' => 'Amount']);
 
                 [$ab,$ac,$bc,$comb] = $this->generateRegularCombinations();
                 $data[] = $this->addCrossOptions(
