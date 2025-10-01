@@ -417,10 +417,13 @@ class DrawProfilLossDataTable extends DataTable
                 };
             })
             // ✅ For non-admin restrict by user
-            ->when(
-                auth()->user()->hasRole(['user']) || $this->userId,
-                fn($q) => $q->forUserTicketOption($this->resolveUserId())
-            )
+            // ->when(
+            //     auth()->user()->hasRole(['user']) || $this->userId,
+            //     fn($q) => $q->forUserTicketOption($this->resolveUserId())
+            // )
+            //  For user new added showing all draw list in dashboard
+
+
             // ✅ Order handling
             ->when($request->has('order'), function ($q) use ($request) {
                 $columns = collect($this->getColumns())->pluck('name')->values()->all();
@@ -476,14 +479,19 @@ class DrawProfilLossDataTable extends DataTable
             Column::make('cross_claim')->title('Cross Claim'),
             Column::make('p_and_l')->title('P&L'),
             Column::make('created_at')->title('Created At'),
+            // Column::make('action')->title('Action')->orderable(false),
         ];
 
-        if ($this->isAdminSeg() && !$this->userId) {
-            $columns[] = Column::make('action')->orderable(false);
-        }
-
-        return $columns;
+       if ($this->isAdminSeg() && !$this->userId) {
+        // Admin side action column
+        $columns[] = Column::make('action')->title('Action')->orderable(false);
+    } else {
+        // User side action column
+        $columns[] = Column::make('action')->title('Action')->orderable(false);
     }
+
+    return $columns;
+}
 
     protected function filename(): string
     {

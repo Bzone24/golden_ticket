@@ -13,20 +13,35 @@
               <li class="nav-item dropdown">
                 <a class="nav-link d-flex " href="javascript:void(0)" id="drop2" data-bs-toggle="dropdown"
                   aria-expanded="false">
-                    <span class="me-2 d-none d-lg-inline-block">
+                    {{-- {{-- <span class="me-2 d-none d-lg-inline-block"> --}}
                      <strong> <span class="text-dark">
-                        {{ Auth::user()->name }}
+                        {{ Auth::user()->login_id }} 
                          {{-- {{ Auth::user()->email }} --}}
- (Username: {{ Auth::user()->username }})
+ {{-- (Username: {{ Auth::user()->username }}) --}}
             {{-- show first role if any --}}
-             (Role: {{ Auth::user()->getRoleNames()->first() ?? 'User' }})
-                      </span></strong>
+             {{-- (Role: {{ Auth::user()->getRoleNames()->first() ?? 'User' }})
+                      </span></strong> --}}
                       <i class="ti ti-chevron-down text-dark"></i>
                     </span>
                   <img src="{{asset('assets/images/profile/user-1.jpg')}}" alt="" width="35" height="35" class="rounded-circle">
                 </a>
+
+                
                 <div class="dropdown-menu dropdown-menu-end dropdown-menu-animate-up" aria-labelledby="drop2">
                   <div class="message-body">
+
+                       <a href="javascript:void(0)" class="d-flex align-items-center gap-2 dropdown-item">
+                      {{-- <i class="ti ti-mail fs-6"></i> --}}
+                      <p class="mb-0 fs-3 text-dark">  {{ Auth::user()->name }}</p>
+                    </a>
+                    <a href="javascript:void(0)" class="d-flex align-items-center gap-2 dropdown-item">
+                      {{-- <i class="ti ti-list-check fs-6"></i> --}}
+                      <p class="mb-0 fs-3 text-dark">Role: {{ Auth::user()->getRoleNames()->first() ?? 'User' }}</p>
+                    </a> 
+                     <a href="javascript:void(0)" class="d-flex align-items-center gap-2 dropdown-item">
+                      {{-- <i class="ti ti-list-check fs-6"></i> --}}
+                      <p class="mb-0 fs-3 text-dark">Username: {{ Auth::user()->username }}</p>
+                    </a> 
                     <a href="javascript:void(0)" class="d-flex align-items-center gap-2 dropdown-item">
                       <i class="ti ti-user fs-6"></i>
                       <p class="mb-0 fs-3">Profile</p>
@@ -38,15 +53,9 @@
         <p class="mb-0 fs-3">Logout</p>
     </button>
 </form>
-                    {{-- <a href="javascript:void(0)" class="d-flex align-items-center gap-2 dropdown-item">
-                      <i class="ti ti-mail fs-6"></i>
-                      <p class="mb-0 fs-3">My Account</p>
-                    </a>
-                    <a href="javascript:void(0)" class="d-flex align-items-center gap-2 dropdown-item">
-                      <i class="ti ti-list-check fs-6"></i>
-                      <p class="mb-0 fs-3">My Task</p>
-                    </a> --}}
-                    {{-- <a href="./authentication-login.html" class="btn btn-outline-primary mx-3 mt-2 d-block">Logout</a> --}}
+                 
+                    <a href="./authentication-login.html" class="btn btn-outline-primary mx-3 mt-2 d-block">Logout</a> 
+                     
                   </div>
                 </div>
               </li>

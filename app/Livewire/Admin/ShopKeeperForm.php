@@ -33,49 +33,59 @@ class ShopKeeperForm extends Component
     /**
      * Validation rules for create / update
      */
-    public function rules()
-    {
-        $user = $this->existingUser;
+ public function rules()
+{
+    $user = $this->existingUser;
 
-        // Build per-game validation rules dynamically based on $this->games (Game collection)
-        $gameRules = [];
-        foreach (Game::all() as $g) {
-            // we validate the per_game_limits keys by game id
-            $gameId = $g->id;
-            $gameRules["per_game_limits.{$gameId}.maximum_cross_amount"] = ['nullable', 'numeric', 'min:0'];
-            $gameRules["per_game_limits.{$gameId}.maximum_tq"] = ['nullable', 'numeric', 'min:0'];
-        }
-
-        if ($user) {
-            // Editing existing user - email/mobile optional, password optional
-            return array_merge([
-                'username' => ['required', 'string', 'alpha_dash', 'max:100', 'unique:users,username,' . $user->id],
-                'full_name' => ['required', 'string', 'min:3', 'max:255'],
-                'email' => ['nullable', 'string', 'email', 'max:255', 'unique:users,email,' . $user->id],
-                'mobile_number' => ['nullable', 'string', 'min:6', 'max:20', 'unique:users,mobile_number,' . $user->id],
-                'password' => ['nullable', 'string', 'min:6', 'max:100', 'confirmed'],
-                'maximum_cross_amount' => ['nullable', 'numeric'],
-                'maximum_tq' => ['nullable', 'numeric'],
-
-                'allowed_games'   => ['required', 'array', 'min:1'],
-                'allowed_games.*' => ['integer', 'exists:games,id'],
-            ], $gameRules);
-        }
-
-        // Creating new user - require per-game limits instead of the single global? we keep both but enforce per_game_limits
-        return array_merge([
-            'username' => ['required', 'string', 'alpha_dash', 'max:100', 'unique:users,username'],
-            'full_name' => ['required', 'string', 'min:3', 'max:255'],
-            'email' => ['nullable', 'string', 'email', 'max:255', 'unique:users,email'],
-            'mobile_number' => ['nullable', 'string', 'min:6', 'max:20', 'unique:users,mobile_number'],
-            'password' => ['required', 'string', 'min:6', 'max:100', 'confirmed'],
-            'maximum_cross_amount' => ['required', 'numeric'],
-            'maximum_tq' => ['required', 'numeric'],
-
-            'allowed_games'   => ['required', 'array', 'min:1'],
-            'allowed_games.*' => ['integer', 'exists:games,id'],
-        ], $gameRules);
+    // Dynamic per-game validation
+    $gameRules = [];
+    foreach (Game::all() as $g) {
+        $gameId = $g->id;
+        $gameRules["per_game_limits.{$gameId}.maximum_cross_amount"] = ['nullable', 'numeric', 'min:0'];
+        $gameRules["per_game_limits.{$gameId}.maximum_tq"] = ['nullable', 'numeric', 'min:0'];
     }
+
+    if ($user) {
+        // Editing existing user
+        $baseRules = [
+            'username' => ['required', 'string', 'alpha_dash', 'max:100', 'unique:users,username,' . $user->id],
+            'full_name' => ['required', 'string', 'min:3', 'max:255'],
+            'email' => ['nullable', 'string', 'email', 'max:255', 'unique:users,email,' . $user->id],
+            'mobile_number' => ['nullable', 'string', 'min:6', 'max:20', 'unique:users,mobile_number,' . $user->id],
+            'password' => ['nullable', 'string', 'min:6', 'max:100', 'confirmed'],
+            'maximum_cross_amount' => ['nullable', 'numeric'],
+            'maximum_tq' => ['nullable', 'numeric'],
+        ];
+
+        // Only shopkeeper must pick allowed_games
+        if (auth()->check() && auth()->user()->hasRole('shopkeeper')) {
+            $baseRules['allowed_games']   = ['required', 'array', 'min:1'];
+            $baseRules['allowed_games.*'] = ['integer', 'exists:games,id'];
+        }
+
+        return array_merge($baseRules, $gameRules);
+    }
+
+    // Creating new user
+    $createRules = [
+        'username' => ['required', 'string', 'alpha_dash', 'max:100', 'unique:users,username'],
+        'full_name' => ['required', 'string', 'min:3', 'max:255'],
+        'email' => ['nullable', 'string', 'email', 'max:255', 'unique:users,email'],
+        'mobile_number' => ['nullable', 'string', 'min:6', 'max:20', 'unique:users,mobile_number'],
+        'password' => ['required', 'string', 'min:6', 'max:100', 'confirmed'],
+        'maximum_cross_amount' => ['required', 'numeric'],
+        'maximum_tq' => ['required', 'numeric'],
+    ];
+
+    // Again, only require allowed_games if shopkeeper is logged in
+    if (auth()->check() && auth()->user()->hasRole('shopkeeper')) {
+        $createRules['allowed_games']   = ['required', 'array', 'min:1'];
+        $createRules['allowed_games.*'] = ['integer', 'exists:games,id'];
+    }
+
+    return array_merge($createRules, $gameRules);
+}
+
 
 
     /**
@@ -186,7 +196,11 @@ class ShopKeeperForm extends Component
                 $this->existingUser->update($data);
 
                 // Sync allowed games
-                $this->existingUser->games()->sync($this->allowed_games);
+                if (auth()->user()->hasRole('shopkeeper')) {
+    $this->existingUser->games()->sync($this->allowed_games);
+} else {
+    $this->existingUser->games()->sync(Game::pluck('id')->toArray());
+}
 
                 $userId = $this->existingUser->id;
             } else {
@@ -216,7 +230,13 @@ class ShopKeeperForm extends Component
                 $user->save();
 
                 // Sync allowed games
-                $user->games()->sync($this->allowed_games);
+               // Sync allowed games
+if (auth()->user()->hasRole('shopkeeper')) {
+    $user->games()->sync($this->allowed_games);
+} else {
+    $user->games()->sync(Game::pluck('id')->toArray());
+}
+
 
                 $userId = $user->id;
             }
