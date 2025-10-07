@@ -1,7 +1,7 @@
 <?php
 
 namespace App\Traits\TicketForm;
-
+use Illuminate\Support\Facades\DB;
 use App\Models\DrawDetail;
 use App\Models\Ticket;
 use Carbon\Carbon;
@@ -55,40 +55,58 @@ trait TicketFormAction
             ->all();
     }
 
-    protected function addTicket()
-    {
-        if ($this->auth_user->tickets->last() && $this->auth_user->tickets->last()->ticket_number) {
-            $last_ticket_number = explode('-', $this->auth_user->tickets->last()->ticket_number);
-            $ticketNumber = $last_ticket_number[0] . '-' . ((int) $last_ticket_number[1] + 1);
-        } else {
-            $series = explode('-', $this->auth_user->ticket_series);
-            $ticketNumber = $series[0] . '-' . ((int) $series[1] + 1);
-        }
+  protected function addTicket()
+{
+    // make sure we pick the real last ticket for this user, include soft-deleted ones
+    $lastTicket = $this->auth_user
+        ->tickets()               // use relation (query builder), not the loaded collection
+        ->withTrashed()           // include soft-deleted so numbers are reserved
+        ->orderBy('id', 'desc')   // newest first
+        ->first();
 
-        $this->active_draw = DrawDetail::runningDraw()->first();
-        if ($this->active_draw) {
-            $this->draw_detail_id = $this->active_draw->id;
+    // compute next ticket number from lastTicket (or from user's series)
+    if ($lastTicket && !empty($lastTicket->ticket_number)) {
+        $parts = explode('-', $lastTicket->ticket_number);
+        $prefix = $parts[0] ?? '';
+        $num = isset($parts[1]) ? (int) $parts[1] : 0;
+        $nextTicketNumber = $prefix . '-' . ($num + 1);
+    } else {
+        // user's base series may be like "A32-100"
+        $series = explode('-', $this->auth_user->ticket_series ?? 'A1-0');
+        $prefix = $series[0] ?? 'A1';
+        $num = isset($series[1]) ? (int) $series[1] : 0;
+        $nextTicketNumber = $prefix . '-' . ($num + 1);
+    }
 
-            $now = Carbon::now('Asia/Kolkata');
+    // only set selected_ticket_number if not already set (avoid stomping mount/generated value)
+    if (empty($this->selected_ticket_number)) {
+        $this->selected_ticket_number = $nextTicketNumber;
+    }
 
-            // Parse DB value (supports "01:30 pm" and "13:30")
-            $end = $this->parseTimeToCarbon($this->active_draw->end_time)
-                ->setDate($now->year, $now->month, $now->day)
-                ->setSecond(59);
+    // Draw setup
+    $this->active_draw = DrawDetail::runningDraw()->first();
+    if ($this->active_draw) {
+        $this->draw_detail_id = $this->active_draw->id;
 
-            $this->end_time  = $end->format('h:i a');               // display
-            $this->duration  = max(0, $now->diffInSeconds($end));   // seconds left
-            $this->selected_ticket_number = $ticketNumber;
-            $this->selected_ticket        = $this->user_running_ticket;
+        $now = Carbon::now('Asia/Kolkata');
+        $end = $this->parseTimeToCarbon($this->active_draw->end_time)
+            ->setDate($now->year, $now->month, $now->day)
+            ->setSecond(59);
 
-            $this->loadOptions(true);
-            $this->loadTickets(true);
+        $this->end_time  = $end->format('h:i a');               // display
+        $this->duration  = max(0, $now->diffInSeconds($end));   // seconds left
 
-            $this->selected_draw[]  = (string) $this->draw_detail_id;
-            $this->selected_draw_id = $this->draw_detail_id;
-            $this->sanitizeSelectedDrawDB(); // keep only open draws
-        }
-    }   
+        $this->selected_ticket        = $this->user_running_ticket;
+
+        $this->loadOptions(true);
+        $this->loadTickets(true);
+
+        $this->selected_draw[]  = (string) $this->draw_detail_id;
+        $this->selected_draw_id = $this->draw_detail_id;
+        $this->sanitizeSelectedDrawDB(); // keep only open draws
+    }
+}
+
 
     #[On('draw-selected')]
    public function handleDrawSelected($draw_detail_id, $isChecked)
@@ -252,6 +270,79 @@ $this->selectedDraws = \App\Models\DrawDetail::with('draw.game')
     $this->loadOptions(true);
     $this->loadAbcData(true);
     $this->dispatch('checked-draws', drawIds: $this->selected_draw);
+}
+
+public function deleteTicketDraws(array $drawDetailIds)
+{
+    // ensure we have a selected ticket
+    if (empty($this->selected_ticket) || !($this->selected_ticket instanceof \App\Models\Ticket)) {
+        $this->submit_error = 'No ticket selected.';
+        return;
+    }
+
+    // normalize to strings/ints
+    $requested = array_map(fn($v) => (int)$v, $drawDetailIds);
+
+    // filter only currently open/active draw ids using your existing helper
+    $allowed = $this->filterOpenDrawIds($requested);
+
+    if (empty($allowed)) {
+        $this->submit_error = 'Selected draw(s) are expired or not deletable.';
+        return;
+    }
+
+    $ticketId = (int)$this->selected_ticket->id;
+    $userId = auth()->id();
+
+    DB::transaction(function () use ($ticketId, $allowed, $userId) {
+        // fetch rows we will remove (for audit)
+        $oldOptions = \App\Models\TicketOption::where('ticket_id', $ticketId)
+            ->whereIn('draw_detail_id', $allowed)
+            ->get()
+            ->map->toArray();
+
+        $oldCross = \App\Models\CrossAbcDetail::where('ticket_id', $ticketId)
+            ->whereIn('draw_detail_id', $allowed)
+            ->get()
+            ->map->toArray();
+
+        // delete the rows (safe: removal only for allowed draws)
+        \App\Models\TicketOption::where('ticket_id', $ticketId)
+            ->whereIn('draw_detail_id', $allowed)
+            ->delete();
+
+        \App\Models\CrossAbcDetail::where('ticket_id', $ticketId)
+            ->whereIn('draw_detail_id', $allowed)
+            ->delete();
+
+        // write audit event
+        DB::table('ticket_events')->insert([
+            'ticket_id' => $ticketId,
+            'user_id' => $userId,
+            'event_type' => 'DELETE',
+            'draw_detail_ids' => json_encode(array_values($allowed)),
+            'details' => json_encode(['options' => $oldOptions, 'cross' => $oldCross]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+    });
+
+    // Refresh UI cache & recalc totals using existing helpers to keep behavior unchanged
+    $this->clearAllOptionsIntoCache();
+    $this->clearAllCrossAbcIntoCache();
+    // reload options & cross from DB for this ticket (so cache is consistent)
+    $this->setStoreOptions($this->selected_draw ?? []);
+    $this->loadOptions(true);
+    $this->loadAbcData(true);
+    if (method_exists($this, 'calculateFinalTotal')) $this->calculateFinalTotal();
+    if (method_exists($this, 'calculateCrossFinalTotal')) $this->calculateCrossFinalTotal();
+
+    // dispatch an event that front-end can listen to (keep pattern)
+    $this->dispatch('ticket-draws-deleted', drawIds: $allowed, ticketId: $ticketId);
+
+    $this->submit_error = '';
+    // optionally display success message (you can adapt to your UI)
+    $this->dispatchBrowserEvent('notify', ['type' => 'success', 'message' => 'Selected draws removed from ticket.']);
 }
 
     public function getTimes()

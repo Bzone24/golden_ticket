@@ -22,6 +22,7 @@ class DrawDetail extends Model
         'claim_a',
         'claim_b',
         'claim_c',
+        'updated_at',
         'ab',
         'ac',
         'bc',
@@ -89,15 +90,20 @@ class DrawDetail extends Model
             ->format($format);
     }
 
-    public function ticketOptions()
-    {
-        return $this->hasMany(TicketOption::class);
-    }
+public function ticketOptions()
+{
+    return $this->hasMany(TicketOption::class)
+        ->where('voided', 0)
+        ->whereHas('ticket', fn($q) => $q->whereNull('deleted_at'));
+}
 
-    public function crossAbcDetail()
-    {
-        return $this->hasMany(CrossAbcDetail::class);
-    }
+public function crossAbcDetail()
+{
+    return $this->hasMany(CrossAbcDetail::class)
+        ->where('voided', 0)
+        ->whereHas('ticket', fn($q) => $q->whereNull('deleted_at'));
+}
+
 
     public function scopeForUserTicketOption(EloquentBuilder $drawDetail, $user_id): Builder
     {
@@ -105,54 +111,67 @@ class DrawDetail extends Model
             return $ticketOption->where('user_id', $user_id);
         });
     }
+public function totalAqty(?int $number = null, $user_id = null)
+{
+    return $this->ticketOptions()
+        ->where('voided', 0)
+        ->whereHas('ticket', fn($q) => $q->whereNull('deleted_at'))
+        ->when(! is_null($number), fn($q) => $q->where('number', $number))
+        ->when(! is_null($user_id), fn($q) => $q->where('user_id', $user_id))
+        ->sum('a_qty');
+}
 
-    public function totalAqty(?int $number = null, $user_id = null)
-    {
-        return $this->ticketOptions()
-            ->when(! is_null($number), fn($q) => $q->where('number', $number)) // ✅ works with 0
-            ->when(! is_null($user_id), fn($q) => $q->where('user_id', $user_id))
-            ->sum('a_qty');
-    }
+public function totalBqty(?int $number = null, $user_id = null)
+{
+    return $this->ticketOptions()
+        ->where('voided', 0)
+        ->whereHas('ticket', fn($q) => $q->whereNull('deleted_at'))
+        ->when(! is_null($number), fn($q) => $q->where('number', $number))
+        ->when(! is_null($user_id), fn($q) => $q->where('user_id', $user_id))
+         ->sum('b_qty');
+}
 
-    public function totalBqty(?int $number = null, $user_id = null)
-    {
-        return $this->ticketOptions()
-            ->when(! is_null($number), fn($q) => $q->where('number', $number))
-            ->when($user_id, fn($q) => $q->where('user_id', $user_id))
-            ->sum('b_qty');
-    }
+public function totalCqty(?int $number = null, $user_id = null)
+{
+    return $this->ticketOptions()
+        ->where('voided', 0)
+        ->whereHas('ticket', fn($q) => $q->whereNull('deleted_at'))
+        ->when(! is_null($number), fn($q) => $q->where('number', $number))
+        ->when(! is_null($user_id), fn($q) => $q->where('user_id', $user_id))
+        ->sum('c_qty');
+}
 
-    public function totalCqty(?int $number = null, $user_id = null)
-    {
-        return $this->ticketOptions()
-            ->when(! is_null($number), fn($q) => $q->where('number', $number))
-            ->when($user_id, fn($q) => $q->where('user_id', $user_id))
-            ->sum('c_qty');
-    }
 
-    public function totalAbAmt($user_id = null)
-    {
-        return $this->crossAbcDetail()
-            ->where('type', 'AB')
-            ->when($user_id, fn($q) => $q->where('user_id', $user_id))
-            ->sum('amount');
-    }
 
-    public function totalAcAmt($user_id = null)
-    {
-        return $this->crossAbcDetail()
-            ->where('type', 'AC')
-            ->when($user_id, fn($q) => $q->where('user_id', $user_id))
-            ->sum('amount');
-    }
+ public function totalAbAmt($user_id = null)
+{
+    return $this->crossAbcDetail()
+        ->where('type', 'AB')
+        ->where('voided', 0) // ✅ exclude voided rows
+        ->whereHas('ticket', fn($q) => $q->whereNull('deleted_at')) // ✅ exclude soft-deleted tickets
+        ->when($user_id, fn($q) => $q->where('user_id', $user_id))
+        ->sum('amount');
+}
 
-    public function totalBcAmt($user_id = null)
-    {
-        return $this->crossAbcDetail()
-            ->where('type', 'BC')
-            ->when($user_id, fn($q) => $q->where('user_id', $user_id))
-            ->sum('amount');
-    }
+public function totalAcAmt($user_id = null)
+{
+    return $this->crossAbcDetail()
+        ->where('type', 'AC')
+        ->where('voided', 0)
+        ->whereHas('ticket', fn($q) => $q->whereNull('deleted_at'))
+        ->when($user_id, fn($q) => $q->where('user_id', $user_id))
+        ->sum('amount');
+}
+
+public function totalBcAmt($user_id = null)
+{
+    return $this->crossAbcDetail()
+        ->where('type', 'BC')
+        ->where('voided', 0)
+        ->whereHas('ticket', fn($q) => $q->whereNull('deleted_at'))
+        ->when($user_id, fn($q) => $q->where('user_id', $user_id))
+        ->sum('amount');
+}
 
     // ✅ Timer helper
     public function remainingSeconds(): int

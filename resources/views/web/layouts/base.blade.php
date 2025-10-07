@@ -9,9 +9,7 @@
     @stack('custom-css')
     @livewireStyles
     <script src="https://cdn.jsdelivr.net/npm/sweetalert2@11"></script>
-
     <meta name="csrf-token" content="{{ csrf_token() }}">
-
 </head>
 
 <body>
@@ -29,19 +27,41 @@
     @vite(['resources/js/app.js'])
 
     <script>
-         document.addEventListener('livewire:init', () => {
+    // Mirror Livewire/DOM events → localStorage so other tabs/pages react
+    (function(){
+      function bumpLS(key){
+        try {
+          localStorage.setItem(key, String(Date.now()));
+          setTimeout(() => { try { localStorage.removeItem(key); } catch(_){} }, 500);
+        } catch(_) {}
+      }
 
-                Livewire.on('swal', event => {
-                    // console.log(event);
-                    const message = event[0]
-                    Swal.fire({
-                        icon: message.icon,
-                        title: message.title,
-                        text: message.text,
-                        confirmButtonColor: '#3085d6',
-                    });
-                });
-            })
+      if (typeof Livewire !== 'undefined') {
+        try {
+          Livewire.on('ticket-submitted', () => bumpLS('ticket-submitted'));
+          Livewire.on('ticketSubmitted',  () => bumpLS('ticket-submitted'));
+          Livewire.on('ticket-deleted',   () => bumpLS('ticket-deleted'));
+          Livewire.on('ticketDeleted',    () => bumpLS('ticket-deleted'));
+        } catch (e) {}
+      }
+
+      window.addEventListener('ticket-submitted', () => bumpLS('ticket-submitted'), false);
+      window.addEventListener('ticket-deleted',   () => bumpLS('ticket-deleted'),   false);
+    })();
+    </script>
+
+    <script>
+    document.addEventListener('livewire:init', () => {
+        Livewire.on('swal', event => {
+            const message = event[0];
+            Swal.fire({
+                icon: message.icon,
+                title: message.title,
+                text: message.text,
+                confirmButtonColor: '#3085d6',
+            });
+        });
+    });
     </script>
 
 </body>

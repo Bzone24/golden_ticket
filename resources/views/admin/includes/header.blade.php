@@ -46,15 +46,15 @@
                       <i class="ti ti-user fs-6"></i>
                       <p class="mb-0 fs-3">Profile</p>
                     </a>
-                    <form method="POST" action="{{ route('logout') }}" id="logout-form">
-    @csrf
-    <button type="submit" class="d-flex align-items-center gap-2 dropdown-item bg-transparent border-0">
-        <i class="ti ti-lock fs-6"></i>
-        <p class="mb-0 fs-3">Logout</p>
-    </button>
-</form>
+                     <form method="POST" action="{{ route('admin.logout') }}" id="admin-logout-form">
+                @csrf
+                <button type="submit" class="d-flex align-items-center gap-2 dropdown-item bg-transparent border-0">
+                  <i class="ti ti-lock fs-6"></i>
+                  <p class="mb-0 fs-3">Logout</p>
+                </button>
+              </form>
                  
-                    <a href="./authentication-login.html" class="btn btn-outline-primary mx-3 mt-2 d-block">Logout</a> 
+                    {{-- <a href="./authentication-login.html" class="btn btn-outline-primary mx-3 mt-2 d-block">Logout</a>  --}}
                      
                   </div>
                 </div>

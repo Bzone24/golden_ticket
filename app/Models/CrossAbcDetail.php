@@ -12,14 +12,30 @@ class CrossAbcDetail extends Model
 {
     use AuthUser, DrawDetailsTrait;
 
-    protected $fillable = [
-       'game_id', 'user_id', 'ticket_id', 'draw_detail_id', 'option', 'number', 'type', 'combination', 'amount'
-    ];
+   protected $fillable = [
+   'game_id', 'user_id', 'ticket_id', 'draw_detail_id', 'option', 'number', 'type', 'combination', 'amount', 'voided'
+];
+
+protected $casts = [
+    'voided' => 'boolean',
+];
+
+public function ticket(): BelongsTo
+{
+    return $this->belongsTo(Ticket::class);
+}
+
 
     public function drawDetail(): BelongsTo
     {
         return $this->belongsTo(DrawDetail::class);
     }
+
+    public function scopeActive($query)
+{
+    return $query->where('voided', false);
+}
+
 
     public function remainingMinutes(): int
     {

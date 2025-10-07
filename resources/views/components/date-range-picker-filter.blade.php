@@ -5,7 +5,7 @@
             <div class="d-flex justify-content-start">
                 <label class="mt-2 me-2"><i class="fa fa-filter"></i> Filter </label>
                 <div class="date-range-picker w-50"
-                    style="background: #fff; cursor: pointer; padding: 5px 10px; border: 1px solid #ccc; width: 100%">
+                    style="background: #e2e2d8; cursor: pointer; padding: 5px 10px; border: 1px solid #c1845a; width: 100%">
                     <i class="fa fa-calendar"></i>&nbsp;
                     <span></span> <i class="fa fa-caret-down"></i>
                 </div>

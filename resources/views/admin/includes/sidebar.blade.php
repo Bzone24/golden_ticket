@@ -53,6 +53,14 @@
                         <span class="hide-menu">Draw</span>
                     </a>
                 </li>
+                 {{-- Cross Trace: add this directly after the Draw menu item --}}
+                <li class="sidebar-item">
+                    <a @class(['sidebar-link', 'active' => request()->is(['admin/cross-trace*'])]) 
+                       href="{{ route('admin.cross-trace') }}" aria-expanded="false">
+                        <i class="ti ti-trending-up"></i>
+                        <span class="hide-menu">Cross Trace</span>
+                    </a>
+                </li>
                 @endhasanyrole
             </ul>
         </nav>

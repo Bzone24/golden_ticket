@@ -2,11 +2,14 @@
 
 namespace App\Livewire;
 
+use App\Models\Ticket;
+use Illuminate\Support\Facades\DB;
 use App\Models\DrawDetail;
 use App\Models\User;
 use App\Traits\TicketForm\CrossAbcOperation;
 use App\Traits\TicketForm\TicketFormAction;
 use App\Traits\TicketForm\TicketFormPagination;
+use App\Traits\TicketNumber;
 use Illuminate\Http\Request;
 use Livewire\Attributes\On;
 use Livewire\Component;
@@ -15,7 +18,7 @@ use Carbon\Carbon;
 
 class AddTicketForm extends Component
 {
-    use CrossAbcOperation, TicketFormAction, TicketFormPagination, WithPagination;
+    use CrossAbcOperation, TicketFormAction, TicketFormPagination, WithPagination, TicketNumber;
 
     protected $paginationTheme = 'bootstrap'; // For Bootstrap 5
 
@@ -57,12 +60,11 @@ class AddTicketForm extends Component
     public $search = '';
     public $filterOption = '';
     public $ticketNumber = '';
-
+    
     public $current_ticket_id = '';
     public $draw_detail_id = '';
 
     
-
     public $is_edit_mode = false;
 
     public $abc;
@@ -79,6 +81,7 @@ public string $serverNowIso = '';
 public $drawCount;
 
 
+
     /** -------------------------
      *  Game selection (N1/N2)
      *  -------------------------
@@ -93,8 +96,8 @@ public $drawCount;
 
 public function applyGameFilter(string $filter): void
 {
-    $allowed = ['both', 'N1', 'N2'];
-    $this->gameFilter = in_array($filter, $allowed) ? $filter : 'both';
+    $allowed = ['N1', 'N2','both'];
+    $this->gameFilter = in_array($filter, $allowed) ? $filter : 'N1';
     $this->refreshDraw(); // will call loadDraws() again with the filter applied
 }
 
@@ -106,6 +109,11 @@ public function applyGameFilter(string $filter): void
             ->map(fn($d) => $d->formatEndTime())
             ->toArray();
     }
+
+    /**
+ * Generate next ticket number for current user/series.
+ * Returns PREFIX-<next> and considers soft-deleted rows to avoid reuse.
+ */
 
     private function refreshSelectedGameLabels(): void
     {
@@ -188,54 +196,84 @@ private function ensureCurrentDrawSelected(): void
 }
 
 
-    public function mount(Request $request, $ticket = null)
-    {
-        $this->clearAllOptionsIntoCache();
-        $this->clearAllCrossAbcIntoCache();
+   public function mount(Request $request, $ticket = null)
+{
+    $this->clearAllOptionsIntoCache();
+    $this->clearAllCrossAbcIntoCache();
 
-        $this->auth_user = User::find($request->user()->id);
+    $this->auth_user = User::find($request->user()->id);
 
-        $this->games = \App\Models\Game::all();
-        $this->ensureDefaultGameSelected();
+    $this->games = \App\Models\Game::all();
+    $this->ensureDefaultGameSelected();
 
-        if ($ticket) {
-            $this->game_id             = $ticket->game_id ?? null;
-            $this->draw_detail_id      = $ticket->drawDetail->id;
-            $this->current_ticket_id   = $ticket->id;
-            $this->user_running_ticket = $ticket;
-            $this->is_edit_mode        = true;
+    if ($ticket) {
+        $this->game_id             = $ticket->game_id ?? null;
+        $this->draw_detail_id      = $ticket->drawDetail->id;
+        $this->current_ticket_id   = $ticket->id;
+        $this->user_running_ticket = $ticket;
+        $this->is_edit_mode        = true;
 
-            $this->selected_draw[] = (string) $this->draw_detail_id;
-            $this->handleTicketSelect($ticket->id);
-        } else {
-            $this->game_id = null;
-            $this->addTicket();
-        }
-
-        $this->getTimes();
-        $this->loadDraws();
-        $this->loadTickets();
-        $this->loadLatestDraws();
-        $this->refreshDraw();
-
-        // Ensure slip is initialized
-        $this->refreshSelectedTimes();
-        $this->refreshSelectedGameLabels();
-
-        // Ensure at least one draw selected
-        if (empty($this->selected_draw) && count($this->draw_list) > 0) {
-            $this->selected_draw = [(string) $this->draw_list[0]->id];
-            $this->setStoreOptions($this->selected_draw);
-        }
-
-        if (count($this->draw_list) == 0) {
-            return redirect()->route('dashboard')->with([
-                'message' => 'Draws not available at this time. Please try after some time.',
-            ]);
-        }
+        $this->selected_draw[] = (string) $this->draw_detail_id;
+        $this->handleTicketSelect($ticket->id);
+    } else {
+        $this->game_id = null;
+        $this->addTicket();
     }
 
-    public function render()
+    $this->getTimes();
+    $this->loadDraws();
+    $this->loadTickets();
+    $this->loadLatestDraws();
+    $this->refreshDraw();
+
+    // Ensure slip is initialized
+    $this->refreshSelectedTimes();
+    $this->refreshSelectedGameLabels();
+
+    // Ensure at least one draw selected
+    if (empty($this->selected_draw) && count($this->draw_list) > 0) {
+        $this->selected_draw = [(string) $this->draw_list[0]->id];
+        $this->setStoreOptions($this->selected_draw);
+    }
+
+    if (count($this->draw_list) == 0) {
+        return redirect()->route('dashboard')->with([
+            'message' => 'Draws not available at this time. Please try after some time.',
+        ]);
+    }
+
+    // ✅ Auto-generate new ticket number if fresh create
+  
+
+if (!$this->is_edit_mode && empty($this->selected_ticket_number)) {
+    try {
+        // pass auth id defensively (generateNextTicketNumber should accept ?int)
+        $userId = auth()->id() ?? null;
+        $this->selected_ticket_number = $this->generateNextTicketNumber($userId);
+
+        // standard laravel log (may not always appear due to config)
+        \Log::info('TICKET: mount set selected_ticket_number', ['val' => $this->selected_ticket_number, 'userId' => $userId]);
+
+        // guaranteed fallback: write a tiny debug file so we always see output
+        file_put_contents(storage_path('logs/ticket-debug.log'),
+            now()->toDateTimeString() . " mount set selected_ticket_number: {$this->selected_ticket_number} (userId={$userId})\n",
+            FILE_APPEND
+        );
+    } catch (\Throwable $e) {
+        // log the exception and write to debug file
+        \Log::error('TICKET: mount generator error', ['err' => $e->getMessage()]);
+
+        file_put_contents(storage_path('logs/ticket-debug.log'),
+            now()->toDateTimeString() . " mount generator ERROR: " . $e->getMessage() . "\n",
+            FILE_APPEND
+        );
+
+        // set a safe fallback so UI doesn't break
+        $this->selected_ticket_number = 'TEMP-' . now()->timestamp;
+    }
+}
+}
+     public function render()
     {
         return view('livewire.add-ticket-form');
     }
@@ -536,6 +574,57 @@ public function handleCountdownReached($payload = null)
     {
         return DrawDetail::whereIn('id', $this->selected_draw)->get();
     }
+
+
+
+
+public function deleteTicket($ticketId)
+{
+    // accept either array payload from Livewire.dispatch or a plain id
+    $ticketId = is_array($ticketId) ? ($ticketId['ticketId'] ?? null) : $ticketId;
+    if (!$ticketId) {
+        $this->dispatch('notify', ['message' => 'Invalid ticket ID.']);
+        return;
+    }
+
+    $ticket = \App\Models\Ticket::withTrashed()->find($ticketId);
+    if (!$ticket) {
+        $this->dispatch('notify', ['message' => 'Ticket not found.']);
+        return;
+    }
+
+    DB::transaction(function () use ($ticket) {
+        // 1) Log event BEFORE making changes (audit)
+        DB::table('ticket_events')->insert([
+            'ticket_id'  => $ticket->id,
+            'user_id'    => auth()->id(),
+            'event_type' => 'DELETE',
+            'details'    => json_encode(['ticket_number' => $ticket->ticket_number]),
+            'created_at' => now(),
+            'updated_at' => now(),
+        ]);
+
+        // 2) Void related rows so they won't be counted by sums (keeps history)
+        \App\Models\TicketOption::where('ticket_id', $ticket->id)
+            ->update(['voided' => true, 'updated_at' => now()]);
+
+        \App\Models\CrossAbcDetail::where('ticket_id', $ticket->id)
+            ->update(['voided' => true, 'updated_at' => now()]);
+
+        // 3) Soft-delete the ticket (keeps the row for audit)
+       $ticket->delete();
+});
+
+$payload = ['id' => $ticket->id, 'number' => $ticket->ticket_number];
+
+// 🔔 tell the page “a ticket was deleted”
+$this->dispatch('ticket-deleted', $payload);   // kebab-case
+$this->dispatch('ticketDeleted', $payload);    // camelCase (optional but handy)
+
+$this->dispatch('notify', ['message' => "Ticket {$ticket->ticket_number} deleted (voided)."]);
+$this->loadTickets();
+}
+
 
 
 }

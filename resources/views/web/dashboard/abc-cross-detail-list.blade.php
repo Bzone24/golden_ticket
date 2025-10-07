@@ -122,7 +122,7 @@
                         </div>
                         <div class="card-body" style="background-color: #3f3f45; color:white; text-align: center;">
                             <div class="table-responsive" style="max-height: 600px; overflow-y: auto;">
-                            <b >{{ $dataTable->table() }}</b>
+                            <b > {!! $dataTable->table() !!}</b>
                         </div>
                         </div>
                     </div>
@@ -165,12 +165,69 @@
         </div>
     </div>
     </div>
-    @push('custom-js')
-        @include('admin.includes.datatable-js-plugins')
-        {{ $dataTable->scripts() }}
-        {!! $crossAcDataTable->scripts() !!}
-        {!! $crossBcDataTable->scripts() !!}
-    @endpush
+  @push('custom-js')
+    @include('admin.includes.datatable-js-plugins')
+    {!! $dataTable->scripts() !!}
+    {!! $crossAcDataTable->scripts() !!}
+    {!! $crossBcDataTable->scripts() !!}
+
+    
+    <script>
+    (function () {
+        // safe DOM ready
+        function onReady(fn) {
+            if (document.readyState !== 'loading') fn();
+            else document.addEventListener('DOMContentLoaded', fn);
+        }
+
+        onReady(function () {
+            // pick the draw id from the blade (server-rendered)
+            var drawId = '{{ $drawDetail->id ?? request("draw_detail_id") ?? request("drawDetail") }}';
+
+            // build frontend URLs (adjust if your route URIs differ)
+            var abUrl = '/dashboard/cross-ab-list' + (drawId ? '?draw_detail_id=' + drawId : '');
+            var acUrl = '/dashboard/cross-ac-list' + (drawId ? '?draw_detail_id=' + drawId : '');
+            var bcUrl = '/dashboard/cross-bc-list' + (drawId ? '?draw_detail_id=' + drawId : '');
+
+            // Helper: set ajax url & reload if DataTable already exists
+            function ensureTable(tableId, url) {
+                try {
+                    var tableEl = jQuery('#' + tableId);
+                    if (!tableEl.length) return;
+                    // if DataTable has been initialised by yajra scripts, get API
+                    if ( $.fn.dataTable.isDataTable(tableEl) ) {
+                        var dt = tableEl.DataTable();
+                        // set ajax to the frontend url and reload
+                        if (typeof dt.ajax === 'object' && typeof dt.ajax.url === 'function') {
+                            dt.ajax.url(url).load();
+                        } else if (dt.settings && dt.settings()[0] && dt.settings()[0].oAjaxData) {
+                            // fallback: force a reload
+                            dt.ajax && dt.ajax.reload && dt.ajax.reload();
+                        }
+                    } else {
+                        // not initialised yet — attempt to initialise with only ajax URL
+                        tableEl.DataTable({
+                            ajax: url,
+                            paging: false,
+                            info: false,
+                            searching: true,
+                            scrollY: '250px',
+                            scrollCollapse: true
+                        });
+                    }
+                } catch (e) {
+                    console.error('Error ensuring DataTable', tableId, e);
+                }
+            }
+
+            // ensure all three tables use the correct frontend endpoints
+            ensureTable('cross-ab-table', abUrl);
+            ensureTable('cross-ac-table', acUrl);
+            ensureTable('cross-bc-table', bcUrl);
+        });
+    })();
+    </script>
+@endpush
 
 @endsection
 

@@ -6,14 +6,21 @@ use App\Traits\AuthUser;
 use Illuminate\Contracts\Database\Eloquent\Builder;
 use Illuminate\Database\Eloquent\Casts\Attribute;
 use Illuminate\Database\Eloquent\Model;
+use Illuminate\Database\Eloquent\SoftDeletes;
 
 class Ticket extends Model
 {
     use AuthUser;
 
+    use SoftDeletes;
+
     protected $fillable = ['game_id', 'ticket_number', 'user_id', 'draw_details_id','status'];
 
     protected $appends = ['full_ticket_no'];
+
+     protected $casts = [
+        'deleted_at' => 'datetime',
+    ];
 
     protected function fullTicketNo(): Attribute
     {
@@ -53,6 +60,27 @@ public function crossAbc()
     return $this->hasMany(\App\Models\CrossAbcDetail::class, 'ticket_id');
 }
 
+/**
+ * Only options that are not voided (used to exclude deleted tickets' options from sums).
+ *
+ * @return \Illuminate\Database\Eloquent\Relations\HasMany
+ */
+public function activeOptions()
+{
+    return $this->options()->where('voided', false);
+}
+
+/**
+ * Only cross details that are not voided.
+ *
+ * @return \Illuminate\Database\Eloquent\Relations\HasMany
+ */
+public function activeCrossDetails()
+{
+    return $this->crossAbc()->where('voided', false);
+}
+
+
 public function game()
 {
     return $this->belongsTo(Game::class);
@@ -67,6 +95,8 @@ public function drawDetail()
 {
     return $this->belongsTo(DrawDetail::class);
 }
+
+
 
 
 }

@@ -315,6 +315,11 @@ trait OptonsOperation
      */
     public function submitTicket()
     {
+
+           // ✅ Defensive fallback: always ensure a ticket number exists
+    if (empty($this->selected_ticket_number)) {
+        $this->selected_ticket_number = $this->generateNextTicketNumber();
+    }
         // backward-compat: ensure game_id is set from selected_games or current ticket
         if (!$this->game_id && !empty($this->selected_games)) {
             $this->game_id = (int) (is_array($this->selected_games) ? reset($this->selected_games) : $this->selected_games);
@@ -344,6 +349,29 @@ trait OptonsOperation
         } else {
             $gameIds = [(int) $this->game_id];
         }
+
+        // -------------------- Prevent ticket_number reuse (app-level friendly check) --------------------
+if (empty($this->selected_ticket_number)) {
+    // Auto-generate the next ticket number for this user
+    $this->selected_ticket_number = $this->generateNextTicketNumber($this->auth_user->id);
+}
+$ticketNumber = $this->selected_ticket_number;
+
+
+// Find any ticket with same number, including soft-deleted ones
+$existingTicket = \App\Models\Ticket::withTrashed()
+    ->where('ticket_number', $ticketNumber)
+    ->first();
+
+if ($existingTicket) {
+    // Allow when editing the same ticket (current_ticket_id equals existing)
+    if (empty($this->current_ticket_id) || ((int)$existingTicket->id !== (int)$this->current_ticket_id)) {
+        // already used by another ticket (active or deleted) — abort
+        $this->dispatch('notify', ['message' => "Ticket number {$ticketNumber} has already been used."]);
+        return true; // abort before doing wallet debit / transaction
+    }
+}
+
 
         $result = DB::transaction(function () use ($selected_draw_ids, $gameIds) {
 
@@ -432,15 +460,27 @@ trait OptonsOperation
                 }
             }
 
-            // -------------------- create/update ticket --------------------
-            $this->current_ticket_id = Ticket::updateOrCreate(
-                ['ticket_number' => $this->selected_ticket_number],
-                [
-                    'status'  => 'COMPLETED',
-                    'user_id' => $this->auth_user->id,
-                    'game_id' => $this->game_id,
-                ]
-            )->id;
+           // -------------------- create/update ticket --------------------
+try {
+    $this->current_ticket_id = Ticket::updateOrCreate(
+        ['ticket_number' => $this->selected_ticket_number],
+        [
+            'status'  => 'COMPLETED',
+            'user_id' => $this->auth_user->id,
+            'game_id' => $this->game_id,
+        ]
+    )->id;
+} catch (\Illuminate\Database\QueryException $e) {
+    // MySQL duplicate entry error code 1062 (race condition)
+    if (isset($e->errorInfo[1]) && (int)$e->errorInfo[1] === 1062) {
+        // Notify user and abort transaction closure early
+        $this->dispatch('notify', ['message' => "Ticket number {$this->selected_ticket_number} already exists (concurrent)."]);
+        return true;
+    }
+    // rethrow unexpected DB errors
+    throw $e;
+}
+
 
             // try to populate ticket's primary draw/game and optionally insert draw_detail_game relations
             try {
@@ -674,6 +714,8 @@ trait OptonsOperation
         if (is_array($result) && !empty($result)) {
             $payload = $result;
 
+            \Log::info('LIVEWIRE: ticket submit reached in ' . __METHOD__, ['payload' => $payload ?? null]);
+
             // emit ticketSubmitted event with payload (frontend handles printing)
             $this->dispatch('ticketSubmitted', $payload);
             // Fire DOM event for frontend print
@@ -886,73 +928,118 @@ trait OptonsOperation
 
     // new limit method game wise like N1 and N2 
 
-    protected function buildLimitOwnerAndGroupForGame(array $selected_draw_ids, string $gameKey = 'N1'): array
-    {
-        $gameKey = strtoupper($gameKey ?? 'N1');
+    /**
+ * Build limit owner/context for a specific game (N1/N2) and
+ * ensure "existing/current" counting is PER-USER (not group).
+ */
+protected function buildLimitOwnerAndGroupForGame(array $selected_draw_ids, string $gameKey = 'N1'): array
+{
+    $gameKey = strtoupper($gameKey ?: 'N1');
 
-        $currentUser = auth()->user();
-        $limitOwner = $currentUser;
+    $currentUser = auth()->user();
+    $limitOwner  = $currentUser;
 
-        if (!empty($currentUser->created_by)) {
-            $maybeShop = DB::table('users')->where('id', $currentUser->created_by)->first();
-            if ($maybeShop) $limitOwner = $maybeShop;
+    // If this user was created by a shopkeeper, that shopkeeper is the owner
+    if (!empty($currentUser->created_by)) {
+        $maybeShop = DB::table('users')->where('id', $currentUser->created_by)->first();
+        if ($maybeShop) {
+            $limitOwner = $maybeShop;
         }
-
-        // optional admin-level settings overrides per-game
-        $settingsMaxTqKey = 'maximum_tq_' . $gameKey;
-        $settingsMaxCrossKey = 'maximum_cross_amount_' . $gameKey;
-
-        $maxTqFromSettings = Schema::hasTable('settings') ? DB::table('settings')->where('key', $settingsMaxTqKey)->value('value') : null;
-        $maxCrossFromSettings = Schema::hasTable('settings') ? DB::table('settings')->where('key', $settingsMaxCrossKey)->value('value') : null;
-
-        // 🔥 Fix: resolve game_id before query
-        $gid = DB::table('games')->where('name', $gameKey)->value('id');
-
-        // Try owner/shopkeeper per-game limits from user_game_limits table (if exists)
-        $ownerGameLimit = null;
-        if (Schema::hasTable('user_game_limits') && $gid) {
-            $ownerGameLimit = DB::table('user_game_limits')
-                ->where('user_id', $limitOwner->id)
-                ->where('game_id', $gid)
-                ->first();
-        }
-
-        // Fallbacks
-        $defaultTq = 50;
-        $defaultCross = 50;
-
-        $maximum_tq = (int) (
-            $maxTqFromSettings ??
-            ($ownerGameLimit->maximum_tq ?? ($limitOwner->{"maximum_tq_" . strtolower($gameKey)} ?? ($limitOwner->maximum_tq ?? $defaultTq)))
-        );
-
-        $maximum_cross_amt = (int) (
-            $maxCrossFromSettings ??
-            ($ownerGameLimit->maximum_cross_amount ?? ($limitOwner->{"maximum_cross_amount_" . strtolower($gameKey)} ?? ($limitOwner->maximum_cross_amount ?? $defaultCross)))
-        );
-
-        $maximum_source = [
-            'maximum_tq' => $maxTqFromSettings ? 'settings' : ($ownerGameLimit ? 'user_game_limits' : ($limitOwner->id === $currentUser->id ? 'user' : 'shopkeeper')),
-            'maximum_cross_amount' => $maxCrossFromSettings ? 'settings' : ($ownerGameLimit ? 'user_game_limits' : ($limitOwner->id === $currentUser->id ? 'user' : 'shopkeeper')),
-        ];
-
-        $groupUserIds = [$limitOwner->id];
-        $childIds = DB::table('users')->where('created_by', $limitOwner->id)->pluck('id')->toArray();
-        if (!empty($childIds)) {
-            $groupUserIds = array_values(array_unique(array_merge($groupUserIds, $childIds)));
-        }
-
-        return [
-            'currentUser' => $currentUser,
-            'limitOwner' => $limitOwner,
-            'maximum_tq' => $maximum_tq,
-            'maximum_cross_amt' => $maximum_cross_amt,
-            'maximum_source' => $maximum_source,
-            'groupUserIds' => $groupUserIds,
-            'game_key' => $gameKey,
-            'owner_game_limit_row' => $ownerGameLimit ? (array) $ownerGameLimit : null,
-        ];
     }
+
+    // Optional admin overrides (per-game) from settings
+    $settingsMaxTqKey    = 'maximum_tq_' . $gameKey;
+    $settingsMaxCrossKey = 'maximum_cross_amount_' . $gameKey;
+
+    $maxTqFromSettings    = Schema::hasTable('settings') ? DB::table('settings')->where('key', $settingsMaxTqKey)->value('value') : null;
+    $maxCrossFromSettings = Schema::hasTable('settings') ? DB::table('settings')->where('key', $settingsMaxCrossKey)->value('value') : null;
+
+    // Resolve game id from name (N1/N2)
+    $gid = DB::table('games')->where('name', $gameKey)->value('id');
+
+    // Per-user game limits (preferred) + owner fallback
+    $userGameLimit  = null; // for the current user
+    $ownerGameLimit = null; // for the shopkeeper/owner (fallback)
+
+    if (Schema::hasTable('user_game_limits') && $gid) {
+        $userGameLimit = DB::table('user_game_limits')
+            ->where('user_id', $currentUser->id)
+            ->where('game_id', $gid)
+            ->first();
+
+        // Owner row used only as a fallback if user row not present
+        $ownerGameLimit = DB::table('user_game_limits')
+            ->where('user_id', $limitOwner->id)
+            ->where('game_id', $gid)
+            ->first();
+    }
+
+    // Fallbacks
+    $defaultTq    = 50;
+    $defaultCross = 50;
+
+    // Prefer: settings → user's per-game row → user's columns → owner's per-game row → owner's columns → default
+    $maxTqColsUser  = $currentUser->{"maximum_tq_" . strtolower($gameKey)} ?? $currentUser->maximum_tq ?? null;
+    $maxTqColsOwner = $limitOwner->{"maximum_tq_" . strtolower($gameKey)} ?? $limitOwner->maximum_tq ?? null;
+
+    $maxCrossColsUser  = $currentUser->{"maximum_cross_amount_" . strtolower($gameKey)} ?? $currentUser->maximum_cross_amount ?? null;
+    $maxCrossColsOwner = $limitOwner->{"maximum_cross_amount_" . strtolower($gameKey)} ?? $limitOwner->maximum_cross_amount ?? null;
+
+    $maximum_tq = (int)(
+        $maxTqFromSettings
+        ?? ($userGameLimit->maximum_tq ?? null)
+        ?? $maxTqColsUser
+        ?? ($ownerGameLimit->maximum_tq ?? null)
+        ?? $maxTqColsOwner
+        ?? $defaultTq
+    );
+
+    $maximum_cross_amt = (int)(
+        $maxCrossFromSettings
+        ?? ($userGameLimit->maximum_cross_amount ?? null)
+        ?? $maxCrossColsUser
+        ?? ($ownerGameLimit->maximum_cross_amount ?? null)
+        ?? $maxCrossColsOwner
+        ?? $defaultCross
+    );
+
+    $maximum_source = [
+        'maximum_tq' => $maxTqFromSettings ? 'settings'
+                        : ($userGameLimit ? 'user_game_limits(user)' 
+                        : ($maxTqColsUser !== null ? 'user_columns'
+                        : ($ownerGameLimit ? 'user_game_limits(owner)'
+                        : ($maxTqColsOwner !== null ? 'owner_columns' : 'default')))),
+        'maximum_cross_amount' => $maxCrossFromSettings ? 'settings'
+                                  : ($userGameLimit ? 'user_game_limits(user)' 
+                                  : ($maxCrossColsUser !== null ? 'user_columns'
+                                  : ($ownerGameLimit ? 'user_game_limits(owner)'
+                                  : ($maxCrossColsOwner !== null ? 'owner_columns' : 'default')))),
+    ];
+
+    // Keep the group list if you need it elsewhere (e.g., owner dashboards)
+    $groupUserIds = [$limitOwner->id];
+    $childIds = DB::table('users')->where('created_by', $limitOwner->id)->pluck('id')->toArray();
+    if (!empty($childIds)) {
+        $groupUserIds = array_values(array_unique(array_merge($groupUserIds, $childIds)));
+    }
+
+    // 🔑 CRITICAL: sums for "Current" must be ONLY the logged-in user
+    $sumUserIds = [auth()->id()];
+
+    return [
+        'currentUser'          => $currentUser,
+        'limitOwner'           => $limitOwner,
+        'maximum_tq'           => $maximum_tq,
+        'maximum_cross_amt'    => $maximum_cross_amt,
+        'maximum_source'       => $maximum_source,
+        'groupUserIds'         => $groupUserIds, // retained in case you use it elsewhere
+        'sumUserIds'           => $sumUserIds,   // <-- use this in validators for existing sums
+        'game_key'             => $gameKey,
+        'owner_game_limit_row' => $ownerGameLimit ? (array) $ownerGameLimit : null,
+        'user_game_limit_row'  => $userGameLimit ? (array) $userGameLimit : null,
+    ];
+}
+
 
     /**
      * Convert stored options payload into incoming simple array expected by validation.
@@ -1021,193 +1108,188 @@ trait OptonsOperation
     /**
      * Game-aware validateLimits - mirrors the old validateLimits but validates each draw using its own game limits.
      */
-    protected function validateLimitsForGame(array $selected_draw_ids, array $incomingSimple, array $incomingCross, array $limitData, string $gameKey = 'N1'): array
-    {
-        $errors = [];
+   /**
+ * Game-aware validator that checks caps PER DRAW using PER-USER existing totals.
+ */
+protected function validateLimitsForGame(array $selected_draw_ids, array $incomingSimple, array $incomingCross, array $limitData, string $gameKey = 'N1'): array
+{
+    $errors = [];
 
-        $groupUserIds = $limitData['groupUserIds'] ?? [$limitData['limitOwner']->id ?? auth()->id()];
-        $limitOwner   = $limitData['limitOwner'] ?? auth()->user();
+    // Only count the logged-in user's existing bets towards "Current"
+    $sumUserIds  = $limitData['sumUserIds']  ?? [auth()->id()];
+    $limitOwner  = $limitData['limitOwner']  ?? auth()->user();
 
-        if (empty($selected_draw_ids)) return $errors;
+    if (empty($selected_draw_ids)) return $errors;
 
-        // 1) map draw_detail_id => game_id
-        $drawGameMap = DB::table('draw_details')
-            ->whereIn('id', $selected_draw_ids)
-            ->pluck('game_id', 'id')
-            ->toArray();
+    // 1) draw_detail_id => game_id
+    $drawGameMap = DB::table('draw_details')
+        ->whereIn('id', $selected_draw_ids)
+        ->pluck('game_id', 'id')
+        ->toArray();
 
-
-
-        // 1b) fallback for any missing game_id via draws join (if draws.game_id is used)
-        $missing = [];
-        foreach ($selected_draw_ids as $did) {
-            if (empty($drawGameMap[$did])) $missing[] = $did;
-        }
-        if (!empty($missing)) {
-            $fallback = DB::table('draw_details as dd')
-                ->leftJoin('draws as d', 'dd.draw_id', '=', 'd.id')
-                ->whereIn('dd.id', $missing)
-                ->pluck('d.game_id', 'dd.id')
-                ->toArray();
-            foreach ($fallback as $did => $g) {
-                if (!empty($g)) $drawGameMap[$did] = $g;
-            }
-        }
-
-        // 1c) map draw_detail_id => game name (prefer games.name)
-        $gameNamesMap = DB::table('draw_details as dd')
-            ->leftJoin('games as g', 'dd.game_id', '=', 'g.id')
-            ->whereIn('dd.id', $selected_draw_ids)
-            ->pluck('g.name', 'dd.id')
-            ->toArray();
-
-
-
-        // 2) Preload owner per-game limits for the games we need (for group users)
-        $gameIds = array_values(array_filter(array_unique(array_values($drawGameMap))));
-        $ownerGameLimits = []; // [ game_id => [ user_id => rowArray, ... ] ]
-
-        if (!empty($gameIds) && Schema::hasTable('user_game_limits')) {
-            $rows = DB::table('user_game_limits')
-                ->whereIn('user_id', $groupUserIds)
-                ->whereIn('game_id', $gameIds)
-                ->get();
-            foreach ($rows as $r) {
-                $g = (int)$r->game_id;
-                $u = (int)$r->user_id;
-                if (!isset($ownerGameLimits[$g])) $ownerGameLimits[$g] = [];
-                $ownerGameLimits[$g][$u] = (array)$r;
-            }
-        }
-
-        // 3) Fetch existing sums (unchanged)
-        $simpleRows = DB::table('ticket_options')
-            ->whereIn('draw_detail_id', $selected_draw_ids)
-            ->whereIn('user_id', $groupUserIds)
-            ->select(
-                'draw_detail_id',
-                'number',
-                DB::raw('SUM(COALESCE(a_qty,0)) as sum_a'),
-                DB::raw('SUM(COALESCE(b_qty,0)) as sum_b'),
-                DB::raw('SUM(COALESCE(c_qty,0)) as sum_c')
-            )
-            ->groupBy('draw_detail_id', 'number')
-            ->get();
-
-        $existingSimplePerDraw = [];
-        foreach ($simpleRows as $r) {
-            $drawId = (int)$r->draw_detail_id;
-            $num = (string)((int)$r->number);
-            $existingSimplePerDraw[$drawId]['a' . $num] = (int)$r->sum_a;
-            $existingSimplePerDraw[$drawId]['b' . $num] = (int)$r->sum_b;
-            $existingSimplePerDraw[$drawId]['c' . $num] = (int)$r->sum_c;
-        }
-
-        $crossRows = DB::table('cross_abc_details')
-            ->whereIn('draw_detail_id', $selected_draw_ids)
-            ->whereIn('user_id', $groupUserIds)
-            ->select('draw_detail_id', 'type', 'number', DB::raw('SUM(amount) as total_amt'))
-            ->groupBy('draw_detail_id', 'type', 'number')
-            ->get();
-
-        $existingCrossPerDraw = [];
-        foreach ($crossRows as $r) {
-            $drawId = (int)$r->draw_detail_id;
-            $type = strtolower((string)$r->type);
-            $num2 = str_pad((int)$r->number, 2, '0', STR_PAD_LEFT);
-            $key = $type . $num2;
-            $existingCrossPerDraw[$drawId][$key] = (int)$r->total_amt;
-        }
-
-        // 4) Validate per draw, using that draw's game limits
-        foreach ($selected_draw_ids as $detailIdToCheck) {
-            $existingSimple = $existingSimplePerDraw[$detailIdToCheck] ?? [];
-            for ($d = 0; $d <= 9; $d++) {
-                $k = 'a' . $d;
-                if (!isset($existingSimple[$k])) $existingSimple[$k] = 0;
-                $k = 'b' . $d;
-                if (!isset($existingSimple[$k])) $existingSimple[$k] = 0;
-                $k = 'c' . $d;
-                if (!isset($existingSimple[$k])) $existingSimple[$k] = 0;
-            }
-            $existingCross = $existingCrossPerDraw[$detailIdToCheck] ?? [];
-
-            $gameIdForDraw = $drawGameMap[$detailIdToCheck] ?? null;
-            $gameNameForDraw = $gameNamesMap[$detailIdToCheck] ?? ($gameIdForDraw !== null ? 'ID:' . $gameIdForDraw : 'Unknown');
-
-            // defaults
-            $defaultTq = 50;
-            $defaultCross = 50;
-            $maximum_tq = $defaultTq;
-            $maximum_cross_amt = $defaultCross;
-            $maximum_source = ['maximum_tq' => 'default', 'maximum_cross_amount' => 'default'];
-
-            // If we have user_game_limits loaded for that game, prefer the appropriate row
-            if ($gameIdForDraw && isset($ownerGameLimits[(int)$gameIdForDraw])) {
-                $rowsForGame = $ownerGameLimits[(int)$gameIdForDraw];
-
-                // prefer the exact current user row if present, then limitOwner, then first available
-                $row = $rowsForGame[auth()->id()] ?? ($limitOwner ? ($rowsForGame[$limitOwner->id] ?? null) : null) ?? reset($rowsForGame);
-
-                if ($row) {
-                    $maximum_tq = (int)($row['maximum_tq'] ?? $maximum_tq);
-                    $maximum_cross_amt = (int)($row['maximum_cross_amount'] ?? $maximum_cross_amt);
-                    $maximum_source = [
-                        'maximum_tq' => 'user_game_limits',
-                        'maximum_cross_amount' => 'user_game_limits',
-                    ];
-                }
-            } else {
-                // fallback: settings or user fields (legacy behaviour)
-                $settingsMaxTq = Schema::hasTable('settings') ? DB::table('settings')->where('key', 'maximum_tq_' . $gameKey)->value('value') : null;
-                $settingsMaxCross = Schema::hasTable('settings') ? DB::table('settings')->where('key', 'maximum_cross_amount_' . $gameKey)->value('value') : null;
-
-                if ($settingsMaxTq !== null) {
-                    $maximum_tq = (int)$settingsMaxTq;
-                    $maximum_source['maximum_tq'] = 'settings';
-                } elseif (!empty($limitOwner)) {
-                    $col = 'maximum_tq_' . strtolower($gameKey);
-                    $maximum_tq = (int) ($limitOwner->{$col} ?? $limitOwner->maximum_tq ?? $maximum_tq);
-                    $maximum_source['maximum_tq'] = isset($limitOwner->{$col}) ? 'user' : 'user_fallback';
-                }
-
-                if ($settingsMaxCross !== null) {
-                    $maximum_cross_amt = (int)$settingsMaxCross;
-                    $maximum_source['maximum_cross_amount'] = 'settings';
-                } elseif (!empty($limitOwner)) {
-                    $col2 = 'maximum_cross_amount_' . strtolower($gameKey);
-                    $maximum_cross_amt = (int) ($limitOwner->{$col2} ?? $limitOwner->maximum_cross_amount ?? $maximum_cross_amt);
-                    $maximum_source['maximum_cross_amount'] = isset($limitOwner->{$col2}) ? 'user' : 'user_fallback';
-                }
-            }
-
-            // validate simple incoming (a/b/c digits)
-            foreach ($incomingSimple as $key => $incomingQty) {
-                $incomingQty = (int)$incomingQty;
-                $existing = $existingSimple[$key] ?? 0;
-                if ($existing + $incomingQty > $maximum_tq) {
-                    $allowed = max(0, $maximum_tq - $existing);
-                    $errors[] = strtoupper($key)
-                        . " limit exceeded (Game {$gameNameForDraw}). Current: {$existing}, Incoming: {$incomingQty}, Max: {$maximum_tq}, Allowed add: {$allowed}";
-                }
-            }
-
-            // validate cross incoming (ab/ac/bc combos)
-            // incomingCross keys are like 'ab12' etc.
-            foreach ($incomingCross as $key => $incomingAmt) {
-                $incomingAmt = (int)$incomingAmt;
-                $existing = $existingCross[$key] ?? 0;
-                if ($existing + $incomingAmt > $maximum_cross_amt) {
-                    $allowed = max(0, $maximum_cross_amt - $existing);
-                    $errors[] = strtoupper($key)
-                        . " limit exceeded (Game {$gameNameForDraw}). Current: {$existing}, Incoming: {$incomingAmt}, Max: {$maximum_cross_amt}, Allowed add: {$allowed}";
-                }
-            }
-        }
-
-
-        return $errors;
+    // 1b) fallback via draws join if missing
+    $missing = [];
+    foreach ($selected_draw_ids as $did) {
+        if (empty($drawGameMap[$did])) $missing[] = $did;
     }
+    if (!empty($missing)) {
+        $fallback = DB::table('draw_details as dd')
+            ->leftJoin('draws as d', 'dd.draw_id', '=', 'd.id')
+            ->whereIn('dd.id', $missing)
+            ->pluck('d.game_id', 'dd.id')
+            ->toArray();
+        foreach ($fallback as $did => $g) {
+            if (!empty($g)) $drawGameMap[$did] = $g;
+        }
+    }
+
+    // 1c) draw_detail_id => game name
+    $gameNamesMap = DB::table('draw_details as dd')
+        ->leftJoin('games as g', 'dd.game_id', '=', 'g.id')
+        ->whereIn('dd.id', $selected_draw_ids)
+        ->pluck('g.name', 'dd.id')
+        ->toArray();
+
+    // 2) Preload per-game limits rows for the current user (and owner as fallback)
+    $gameIds = array_values(array_filter(array_unique(array_values($drawGameMap))));
+    $ownerGameLimits = []; // [game_id => [user_id => rowArray]]
+
+    if (!empty($gameIds) && Schema::hasTable('user_game_limits')) {
+        $userIdsForLimits = array_unique(array_merge($sumUserIds, [$limitOwner->id]));
+        $rows = DB::table('user_game_limits')
+            ->whereIn('user_id', $userIdsForLimits)
+            ->whereIn('game_id', $gameIds)
+            ->get();
+
+        foreach ($rows as $r) {
+            $g = (int)$r->game_id;
+            $u = (int)$r->user_id;
+            if (!isset($ownerGameLimits[$g])) $ownerGameLimits[$g] = [];
+            $ownerGameLimits[$g][$u] = (array)$r;
+        }
+    }
+
+    // 3) Fetch existing sums — **PER USER** (not group)
+    $simpleRows = DB::table('ticket_options')
+        ->whereIn('draw_detail_id', $selected_draw_ids)
+        ->whereIn('user_id', $sumUserIds)
+        ->select(
+            'draw_detail_id',
+            'number',
+            DB::raw('SUM(COALESCE(a_qty,0)) as sum_a'),
+            DB::raw('SUM(COALESCE(b_qty,0)) as sum_b'),
+            DB::raw('SUM(COALESCE(c_qty,0)) as sum_c')
+        )
+        ->groupBy('draw_detail_id', 'number')
+        ->get();
+
+    $existingSimplePerDraw = [];
+    foreach ($simpleRows as $r) {
+        $drawId = (int)$r->draw_detail_id;
+        $num    = (string)((int)$r->number);
+        $existingSimplePerDraw[$drawId]['a' . $num] = (int)$r->sum_a;
+        $existingSimplePerDraw[$drawId]['b' . $num] = (int)$r->sum_b;
+        $existingSimplePerDraw[$drawId]['c' . $num] = (int)$r->sum_c;
+    }
+
+    $crossRows = DB::table('cross_abc_details')
+        ->whereIn('draw_detail_id', $selected_draw_ids)
+        ->whereIn('user_id', $sumUserIds)
+        ->where('voided', 0) // exclude cancelled/voided rows
+        ->select('draw_detail_id', 'type', 'number', DB::raw('SUM(amount) as total_amt'))
+        ->groupBy('draw_detail_id', 'type', 'number')
+        ->get();
+
+    $existingCrossPerDraw = [];
+    foreach ($crossRows as $r) {
+        $drawId = (int)$r->draw_detail_id;
+        $type   = strtolower((string)$r->type);
+        $num2   = str_pad((int)$r->number, 2, '0', STR_PAD_LEFT);
+        $key    = $type . $num2;
+        $existingCrossPerDraw[$drawId][$key] = (int)$r->total_amt;
+    }
+
+    // 4) Validate per draw with that draw's game limits
+    foreach ($selected_draw_ids as $detailIdToCheck) {
+        $existingSimple = $existingSimplePerDraw[$detailIdToCheck] ?? [];
+        for ($d = 0; $d <= 9; $d++) {
+            $k = 'a' . $d; if (!isset($existingSimple[$k])) $k && $existingSimple[$k] = 0;
+            $k = 'b' . $d; if (!isset($existingSimple[$k])) $k && $existingSimple[$k] = 0;
+            $k = 'c' . $d; if (!isset($existingSimple[$k])) $k && $existingSimple[$k] = 0;
+        }
+        $existingCross = $existingCrossPerDraw[$detailIdToCheck] ?? [];
+
+        $gameIdForDraw = $drawGameMap[$detailIdToCheck] ?? null;
+$gameNameForDraw = $gameNamesMap[$detailIdToCheck] ?? null;
+
+if (empty($gameNameForDraw) && $gameIdForDraw !== null) {
+    $gameNameForDraw = DB::table('games')->where('id', $gameIdForDraw)->value('name');
+}
+
+$gameNameForDraw = $gameNameForDraw ?: 'Unknown';
+
+
+        // defaults
+        $defaultTq       = 50;
+        $defaultCross    = 50;
+        $maximum_tq      = $defaultTq;
+        $maximum_cross_amt = $defaultCross;
+
+        // Prefer the per-user row for that game, then owner
+        if ($gameIdForDraw && isset($ownerGameLimits[(int)$gameIdForDraw])) {
+            $rowsForGame = $ownerGameLimits[(int)$gameIdForDraw];
+            $row = $rowsForGame[auth()->id()] ?? ($rowsForGame[$limitOwner->id] ?? null) ?? reset($rowsForGame);
+
+            if ($row) {
+                $maximum_tq        = (int)($row['maximum_tq'] ?? $maximum_tq);
+                $maximum_cross_amt = (int)($row['maximum_cross_amount'] ?? $maximum_cross_amt);
+            }
+        } else {
+            // fallback: settings or user/owner columns (legacy behaviour)
+            $settingsMaxTq    = Schema::hasTable('settings') ? DB::table('settings')->where('key', 'maximum_tq_' . $gameKey)->value('value') : null;
+            $settingsMaxCross = Schema::hasTable('settings') ? DB::table('settings')->where('key', 'maximum_cross_amount_' . $gameKey)->value('value') : null;
+
+            if ($settingsMaxTq !== null) {
+                $maximum_tq = (int)$settingsMaxTq;
+            } else {
+                $col = 'maximum_tq_' . strtolower($gameKey);
+                $maximum_tq = (int) ($limitOwner->{$col} ?? $limitOwner->maximum_tq ?? $maximum_tq);
+            }
+
+            if ($settingsMaxCross !== null) {
+                $maximum_cross_amt = (int)$settingsMaxCross;
+            } else {
+                $col2 = 'maximum_cross_amount_' . strtolower($gameKey);
+                $maximum_cross_amt = (int) ($limitOwner->{$col2} ?? $limitOwner->maximum_cross_amount ?? $maximum_cross_amt);
+            }
+        }
+
+        // Validate simple (A/B/C digits)
+        foreach ($incomingSimple as $key => $incomingQty) {
+            $incomingQty = (int)$incomingQty;
+            $existing    = $existingSimple[$key] ?? 0;
+            if ($existing + $incomingQty > $maximum_tq) {
+                $allowed = max(0, $maximum_tq - $existing);
+                $errors[] = strtoupper($key)
+                    . " limit exceeded (Game {$gameNameForDraw}). Current: {$existing}, Incoming: {$incomingQty}, Max: {$maximum_tq}, Allowed add: {$allowed}";
+            }
+        }
+
+        // Validate cross (AB/AC/BC)
+        foreach ($incomingCross as $key => $incomingAmt) {
+            $incomingAmt = (int)$incomingAmt;
+            $existing    = $existingCross[$key] ?? 0;
+            if ($existing + $incomingAmt > $maximum_cross_amt) {
+                $allowed = max(0, $maximum_cross_amt - $existing);
+                $errors[] = strtoupper($key)
+                    . " limit exceeded (Game {$gameNameForDraw}). Current: {$existing}, Incoming: {$incomingAmt}, Max: {$maximum_cross_amt}, Allowed add: {$allowed}";
+            }
+        }
+    }
+
+    return $errors;
+}
+
 
     /**
      * Build limit owner, group user ids and maximums for later checking.

@@ -6,6 +6,7 @@ use App\Models\Shopkeeper;
 use App\Models\TicketOption;
 use Illuminate\Database\Eloquent\Builder as QueryBuilder;
 use Illuminate\Http\Request;
+use Illuminate\Support\Facades\DB;
 use Yajra\DataTables\EloquentDataTable;
 use Yajra\DataTables\Html\Builder as HtmlBuilder;
 use Yajra\DataTables\Html\Button;
@@ -29,14 +30,16 @@ class NumberTicketListDataTable extends DataTable
                 $query->whereRaw('LOWER(tickets.ticket_number) like ?', ['%'.strtolower($keyword).'%']);
             })
 
-            ->addColumn('total_collection_of_a', fn ($row) => $row->totalCollection($row->a_qty))
-            ->addColumn('total_collection_of_b', fn ($row) => $row->totalCollection($row->b_qty))
-            ->addColumn('total_collection_of_c', fn ($row) => $row->totalCollection($row->c_qty))
-            ->addColumn('total_distribution_of_a', fn ($row) => $row->totalDistributions($row->a_qty))
-            ->addColumn('total_distribution_of_b', fn ($row) => $row->totalDistributions($row->b_qty))
-            ->addColumn('total_distribution_of_c', fn ($row) => $row->totalDistributions($row->c_qty))
+            // Use the server-side computed sums (sum_a, sum_b, sum_c, sum_cross)
+            ->addColumn('total_collection_of_a', fn ($row) => $row->totalCollection($row->sum_a ?? 0))
+            ->addColumn('total_collection_of_b', fn ($row) => $row->totalCollection($row->sum_b ?? 0))
+            ->addColumn('total_collection_of_c', fn ($row) => $row->totalCollection($row->sum_c ?? 0))
+            ->addColumn('total_distribution_of_a', fn ($row) => $row->totalDistributions($row->sum_a ?? 0))
+            ->addColumn('total_distribution_of_b', fn ($row) => $row->totalDistributions($row->sum_b ?? 0))
+            ->addColumn('total_distribution_of_c', fn ($row) => $row->totalDistributions($row->sum_c ?? 0))
             ->addColumn('numbers', fn ($row) => $row->number)
             ->addColumn('shopkeeper', function ($row) {
+                // keep existing behavior; assume TicketOption has a user relation or it's available
                 return "<a href='#'>{$row->user->name}</a>";
             })
             ->setRowId('ticket_number')
@@ -44,12 +47,15 @@ class NumberTicketListDataTable extends DataTable
                 return "<a href='$row->number'>$row->number</a>";
             })
             ->addColumn('action', function ($ticket_option) {
-                $add_ticket_url = route('admin.draw.ticke.details.list', ['draw_id' => $ticket_option->draw_id, 'number' => $ticket_option->number, 'ticket_id' => $ticket_option->ticket_id]);
+                $add_ticket_url = route('admin.draw.ticke.details.list', [
+                    'draw_id'   => $ticket_option->draw_id,
+                    'number'    => $ticket_option->number,
+                    'ticket_id' => $ticket_option->ticket_id,
+                ]);
 
                 return <<<HTML
                 <div class="d-flex justify-content-center">
-                <a href="$add_ticket_url" class="btn btn-primary btn-sm ms-3 text-white">More Details <i class="fa fa-arrow-circle-right"></i></a>
-
+                    <a href="$add_ticket_url" class="btn btn-primary btn-sm ms-3 text-white">More Details <i class="fa fa-arrow-circle-right"></i></a>
                 </div>
                 HTML;
             })
@@ -62,7 +68,8 @@ class NumberTicketListDataTable extends DataTable
                 'total_collection_of_c',
                 'total_distribution_of_a',
                 'total_distribution_of_b',
-                'total_distribution_of_c', 'shopkeeper',
+                'total_distribution_of_c',
+                'shopkeeper',
             ]);
     }
 
@@ -73,18 +80,28 @@ class NumberTicketListDataTable extends DataTable
      */
     public function query(TicketOption $model, Request $request): QueryBuilder
     {
+        // Subselects compute per-ticket sums while excluding voided rows.
+        // We retain ticket_options.* as the primary row to avoid breaking callers expecting option rows.
+        $sumA = DB::raw("(select COALESCE(SUM(a_qty), 0) from ticket_options to2 where to2.ticket_id = ticket_options.ticket_id and to2.voided = 0) as sum_a");
+        $sumB = DB::raw("(select COALESCE(SUM(b_qty), 0) from ticket_options to2 where to2.ticket_id = ticket_options.ticket_id and to2.voided = 0) as sum_b");
+        $sumC = DB::raw("(select COALESCE(SUM(c_qty), 0) from ticket_options to2 where to2.ticket_id = ticket_options.ticket_id and to2.voided = 0) as sum_c");
+
+        // cross sum from cross_abc_details per ticket
+        $sumCross = DB::raw("(select COALESCE(SUM(amount), 0) from cross_abc_details c where c.ticket_id = ticket_options.ticket_id and c.voided = 0) as sum_cross");
 
         return $model->newQuery()
-            ->select([
+            ->select(array_merge([
                 'ticket_options.*',
                 'tickets.ticket_number as ticket_number',
-            ])
+            ], [$sumA, $sumB, $sumC, $sumCross]))
             ->join('tickets', 'ticket_options.ticket_id', '=', 'tickets.id')
-            // ->forDraw($request->draw_id)
+            // filter for the requested draw and number
             ->where('ticket_options.draw_id', $request->draw_id)
-            // ->where('number', $request->number);
-            ->where('ticket_options.number', $request->number);
-
+            ->where('ticket_options.number', $request->number)
+            // exclude voided ticket_option rows from the operational table
+            ->where('ticket_options.voided', 0)
+            // exclude soft-deleted tickets for operational totals (audit views should use withTrashed explicitly)
+            ->whereNull('tickets.deleted_at');
     }
 
     /**
@@ -101,7 +118,7 @@ class NumberTicketListDataTable extends DataTable
             ->parameters(
                 [
                     'searching' => true,
-                    'language' => [
+                    'language'  => [
                         'searchPlaceholder' => 'Ticket Number',
                     ],
                 ]
@@ -111,7 +128,6 @@ class NumberTicketListDataTable extends DataTable
                 Button::make('csv'),
                 Button::make('pdf'),
                 Button::make('print'),
-
             ]);
     }
 
@@ -130,7 +146,6 @@ class NumberTicketListDataTable extends DataTable
             Column::make('total_distribution_of_c')->title('TTL.  Dist. Of C'),
             Column::make('shopkeeper')->title('Shopkeeper'),
             Column::make('action')->addClass('text-center'),
-
         ];
     }
 

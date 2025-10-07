@@ -29,7 +29,7 @@ class DashboardController extends Controller
 
         $games = \App\Models\Game::all();
         $currentGame = $request->input('game_id');
-        // ✅ Pass $dataTable properly
+
         return $dataTable->render('web.dashboard.index', compact(
             'total_available_draws',
             'games',
@@ -70,70 +70,87 @@ class DashboardController extends Controller
 
     public function totalQtyDetailList(DrawDetail $drawDetail)
     {
-        // $drawDetail = $drawDetail->with('draw.game')->first();
         return view('web.dashboard.total-qty-list-detail', compact('drawDetail'));
     }
 
     public function crossAbcList(
-        CrossAbDataTable $dataTable,
-        CrossAcDataTable $crossAcDataTable,
-        CrossBcDataTable $crossBcDataTable,
-        DrawDetail $drawDetail,
-        Request $request
-    ) {
-        $drawDetail = DrawDetail::findOrFail($request->get('draw_detail_id'));
-        $user = auth()->user();
+    CrossAbDataTable $dataTable,
+    CrossAcDataTable $crossAcDataTable,
+    CrossBcDataTable $crossBcDataTable,
+    Request $request
+) {
+    // Resolve drawDetail from query param (works with ?drawDetail=649 or draw_detail_id)
+    $drawDetail = DrawDetail::findOrFail($request->get('draw_detail_id') ?? $request->get('drawDetail'));
 
-        $totalAbCrossAmt = $user->crossAbcDetail()
-            ->where('draw_detail_id', $drawDetail->id)
-            ->where('type', 'AB')->sum('amount');
-        $totalBcCrossAmt = $user->crossAbcDetail()
-            ->where('draw_detail_id', $drawDetail->id)
-            ->where('type', 'BC')->sum('amount');
-        $totalAcCrossAmt = $user->crossAbcDetail()
-            ->where('draw_detail_id', $drawDetail->id)
-            ->where('type', 'AC')->sum('amount');
+    $user = auth()->user();
 
-        $totalAbCrossClaimAmt = $user->crossAbcDetail()
-            ->where('draw_detail_id', $drawDetail->id)
-            ->where('number', $drawDetail->ab)
-            ->where('type', 'AB')->sum('amount');
-        $totalBcCrossClaimAmt = $user->crossAbcDetail()
-            ->where('draw_detail_id', $drawDetail->id)
-            ->where('number', $drawDetail->bc)
-            ->where('type', 'BC')->sum('amount');
-        $totalAcCrossClaimAmt = $user->crossAbcDetail()
-            ->where('draw_detail_id', $drawDetail->id)
-            ->where('number', $drawDetail->ac)
-            ->where('type', 'AC')->sum('amount');
+    $totalAbCrossAmt = $user->crossAbcDetail()
+        ->where('draw_detail_id', $drawDetail->id)
+        ->where('type', 'AB')->sum('amount');
 
-        $ab_pl = $totalAbCrossAmt - ($totalAbCrossClaimAmt * 100);
-        $ac_pl = $totalAcCrossAmt - ($totalAcCrossClaimAmt * 100);
-        $bc_pl = $totalBcCrossAmt - ($totalBcCrossClaimAmt * 100);
+    $totalBcCrossAmt = $user->crossAbcDetail()
+        ->where('draw_detail_id', $drawDetail->id)
+        ->where('type', 'BC')->sum('amount');
 
-        return $dataTable->render('web.dashboard.abc-cross-detail-list', [
-            'drawDetail'          => $drawDetail,
-            'totalAbCrossAmt'     => $totalAbCrossAmt,
-            'totalBcCrossAmt'     => $totalBcCrossAmt,
-            'totalAcCrossAmt'     => $totalAcCrossAmt,
-            'totalAbCrossClaimAmt'=> $totalAbCrossClaimAmt,
-            'totalBcCrossClaimAmt'=> $totalBcCrossClaimAmt,
-            'totalAcCrossClaimAmt'=> $totalAcCrossClaimAmt,
-            'ab_pl'               => $ab_pl,
-            'ac_pl'               => $ac_pl,
-            'bc_pl'               => $bc_pl,
-            'crossAcDataTable'    => $crossAcDataTable->html(),
-            'crossBcDataTable'    => $crossBcDataTable->html(),
-        ]);
+    $totalAcCrossAmt = $user->crossAbcDetail()
+        ->where('draw_detail_id', $drawDetail->id)
+        ->where('type', 'AC')->sum('amount');
+
+    $totalAbCrossClaimAmt = $user->crossAbcDetail()
+        ->where('draw_detail_id', $drawDetail->id)
+        ->where('number', $drawDetail->ab)
+        ->where('type', 'AB')->sum('amount');
+
+    $totalBcCrossClaimAmt = $user->crossAbcDetail()
+        ->where('draw_detail_id', $drawDetail->id)
+        ->where('number', $drawDetail->bc)
+        ->where('type', 'BC')->sum('amount');
+
+    $totalAcCrossClaimAmt = $user->crossAbcDetail()
+        ->where('draw_detail_id', $drawDetail->id)
+        ->where('number', $drawDetail->ac)
+        ->where('type', 'AC')->sum('amount');
+
+    $ab_pl = $totalAbCrossAmt - ($totalAbCrossClaimAmt * 100);
+    $ac_pl = $totalAcCrossAmt - ($totalAcCrossClaimAmt * 100);
+    $bc_pl = $totalBcCrossAmt - ($totalBcCrossClaimAmt * 100);
+
+    return $dataTable->render('web.dashboard.abc-cross-detail-list', [
+        'drawDetail'          => $drawDetail,
+        'totalAbCrossAmt'     => $totalAbCrossAmt,
+        'totalBcCrossAmt'     => $totalBcCrossAmt,
+        'totalAcCrossAmt'     => $totalAcCrossAmt,
+        'totalAbCrossClaimAmt'=> $totalAbCrossClaimAmt,
+        'totalBcCrossClaimAmt'=> $totalBcCrossClaimAmt,
+        'totalAcCrossClaimAmt'=> $totalAcCrossClaimAmt,
+        'ab_pl'               => $ab_pl,
+        'ac_pl'               => $ac_pl,
+        'bc_pl'               => $bc_pl,
+        'crossAcDataTable'    => $crossAcDataTable->html(),
+        'crossBcDataTable'    => $crossBcDataTable->html(),
+    ]);
+}
+
+
+    // ----------------------------
+    // DataTables AJAX endpoints (return JSON for frontend)
+    // ----------------------------
+
+    public function getCrossAbList(CrossAbDataTable $dataTable, Request $request)
+    {
+        $drawId = $request->get('draw_detail_id') ?? $request->get('drawDetail');
+        return $dataTable->with('draw_detail_id', $drawId)->ajax();
     }
 
-    public function getCrossAcList(CrossAcDataTable $crossAcDataTable, CrossBcDataTable $crossBcDataTable)
+    public function getCrossAcList(CrossAcDataTable $dataTable, Request $request)
     {
-        return $crossAcDataTable->render('web.dashboard.abc-cross-detail-list', compact('crossBcDataTable'));
+        $drawId = $request->get('draw_detail_id') ?? $request->get('drawDetail');
+        return $dataTable->with('draw_detail_id', $drawId)->ajax();
     }
 
-    public function getCrossBcList(CrossAcDataTable $crossAcDataTable, CrossBcDataTable $crossBcDataTable)
+    public function getCrossBcList(CrossBcDataTable $dataTable, Request $request)
     {
-        return $crossBcDataTable->render('web.dashboard.abc-cross-detail-list', compact('crossAcDataTable'));
+        $drawId = $request->get('draw_detail_id') ?? $request->get('drawDetail');
+        return $dataTable->with('draw_detail_id', $drawId)->ajax();
     }
 }

@@ -14,8 +14,12 @@ class TicketOption extends Model
 
     protected $table = 'ticket_options';
 
-    protected $fillable = ['game_id', 'user_id', 'draw_detail_id', 'ticket_id', 'a_qty', 'b_qty', 'c_qty', 'number', 'option_id'];
+    protected $fillable = ['game_id', 'user_id', 'draw_detail_id', 'ticket_id', 'a_qty', 'b_qty', 'c_qty', 'number', 'voided', 'option_id'];
 
+    
+protected $casts = [
+    'voided' => 'boolean',
+];
     /**
      * Get the user that owns the TicketOption
      */
@@ -42,6 +46,12 @@ class TicketOption extends Model
 {
     return $this->belongsTo(Game::class);
 }
+
+public function scopeActive($query)
+{
+    return $query->where('voided', false);
+}
+
 
  public function user()
     {
