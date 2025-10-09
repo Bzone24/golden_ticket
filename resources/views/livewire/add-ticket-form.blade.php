@@ -66,48 +66,144 @@
 
 @script
 <script>
-    $(document).ready(function () {
-        // Generic infinite scroll listeners
-        [
-            'ticket-scroller-box',
-            'draw-box',
-            'option-list',
-            'cross-data-list',
-            'latest-draw-list'
-        ].forEach(cls => {
-            $(document).on('scroll', '.' + cls, function () {
-                let box = $(this);
-                let scrollTop = box.scrollTop();
-                let innerHeight = box.innerHeight();
-                let scrollHeight = box[0].scrollHeight;
+  $(document).ready(function () {
+    // Generic infinite scroll listeners (preserved)
+    [
+      'ticket-scroller-box',
+      'draw-box',
+      'option-list',
+      'cross-data-list',
+      'latest-draw-list'
+    ].forEach(cls => {
+      $(document).on('scroll', '.' + cls, function () {
+        let box = $(this);
+        let scrollTop = box.scrollTop();
+        let innerHeight = box.innerHeight();
+        let scrollHeight = box[0].scrollHeight;
 
-                // keep page variables for Livewire
-                let pageVar = cls.replace(/-./g, x => x[1].toUpperCase()) + '_page';
-                let page = $wire.get(pageVar);
+        // keep page variables for Livewire
+        let pageVar = cls.replace(/-./g, x => x[1].toUpperCase()) + '_page';
+        let page = $wire.get(pageVar);
 
-                if (scrollTop + innerHeight >= scrollHeight - 10) {
-                    page++;
-                    $wire.set(pageVar, page);
-                }
-            });
-        });
-
-        // Refresh listener
-        $wire.on('refresh-window', () => {
-            window.location.reload();
-        });
+        if (scrollTop + innerHeight >= scrollHeight - 10) {
+          page++;
+          $wire.set(pageVar, page);
+        }
+      });
     });
 
+    // Route the server "refresh-window" event through our lightweight handler
+    // (server-side Livewire dispatch('refresh-window') will trigger this)
+    $wire.on('refresh-window', (payload) => {
+      onCountdownZero(payload ?? {});
+    });
+  });
 
-      // 🔹 Immediate reload when client timer hits 0
-    window.addEventListener('countdownZero', () => location.reload());
+  // ---------- Lightweight, single-shot refresh handler ----------
+  window.__drawCountdownFired = window.__drawCountdownFired || false;
 
-    // 🔹 Also reload when Livewire server dispatches its authoritative event
-    window.addEventListener('drawsRefreshed', () => location.reload());
-    window.addEventListener('draws-refreshed', () => location.reload());
-    if (window.Livewire && Livewire.on) {
-        Livewire.on('drawsRefreshed', () => location.reload());
+  function onCountdownZero(payload = {}) {
+    if (window.__drawCountdownFired) return;
+    window.__drawCountdownFired = true;
+
+    // 1) Dispatch the same browser events your server dispatches on ticket submit
+    //    (these are listened by your frontend and are very fast)
+    try {
+      window.dispatchEvent(new CustomEvent('ticket-submitted', { detail: payload }));
+      window.dispatchEvent(new CustomEvent('ticketSubmitted', { detail: payload }));
+      window.dispatchEvent(new Event('refresh-window')); // keep for backward compatibility
+      window.dispatchEvent(new CustomEvent('drawsRefreshed', { detail: payload }));
+      window.dispatchEvent(new CustomEvent('draws-refreshed', { detail: payload }));
+    } catch (e) {
+      console.debug('dispatch events error', e);
     }
-    
+
+    // 2) Lightweight client-side reload helper (if present)
+    try {
+      if (typeof window.__reloadDrawsNow === 'function') {
+        window.__reloadDrawsNow();
+      }
+    } catch (e) {
+      console.debug('__reloadDrawsNow failed', e);
+    }
+
+    // 3) Optional: call $wire.refresh() / $wire.call('refresh') if available on the client.
+    // This attempts to re-render the Livewire component in-place (fast) but will not error if not present.
+    try {
+      if (window.$wire) {
+        // prefer explicit refresh() if provided
+        if (typeof window.$wire.refresh === 'function') {
+          window.$wire.refresh();
+        } else if (typeof window.$wire.call === 'function') {
+          // call a method 'refresh' on the component if you expose one server-side
+          // (you can create a public method refresh() in the component that just calls $this->refresh())
+          window.$wire.call('refresh');
+        }
+      }
+    } catch (e) {
+      console.debug('$wire refresh/call failed', e);
+    }
+
+    // 4) Cross-tab sync (so other open tabs can react)
+    try {
+      localStorage.setItem('draw-ended', JSON.stringify({ payload, ts: Date.now() }));
+    } catch (e) {
+      // ignore storage errors
+    }
+
+    // 5) LAST RESORT fallback: tiny full reload if nothing else handled it.
+    // Delay slightly to allow handlers to run first.
+    setTimeout(() => {
+      const didSomethingLight = (
+        (typeof window.__reloadDrawsNow === 'function') ||
+        (window.$wire && (typeof window.$wire.refresh === 'function' || typeof window.$wire.call === 'function'))
+      );
+      if (!didSomethingLight) {
+        location.reload();
+      }
+    }, 250);
+  }
+
+  // ---------- Wire up existing events to the new handler ----------
+  (function initCountdownBindings() {
+    // Attach our handler to the events other code might fire.
+    // Use { once: true } to avoid duplicate handling.
+    window.addEventListener('countdownZero', (e) => onCountdownZero(e?.detail ?? {}), { once: true });
+    window.addEventListener('drawsRefreshed', (e) => onCountdownZero(e?.detail ?? {}), { once: true });
+    window.addEventListener('draws-refreshed', (e) => onCountdownZero(e?.detail ?? {}), { once: true });
+    window.addEventListener('refresh-window', (e) => onCountdownZero(e?.detail ?? {}), { once: true });
+
+    // Some server-side dispatches may trigger Livewire JS hooks — keep them routed here
+    if (window.Livewire && typeof Livewire.on === 'function') {
+      Livewire.on('drawsRefreshed', (payload) => onCountdownZero(payload ?? {}));
+      Livewire.on('refresh-window', (payload) => onCountdownZero(payload ?? {}));
+    }
+
+    // Storage listener for cross-tab sync
+    window.addEventListener('storage', (e) => {
+      if (e.key === 'draw-ended') {
+        try {
+          const p = JSON.parse(e.newValue || '{}');
+          onCountdownZero(p.payload ?? {});
+        } catch (err) {
+          // ignore parse errors
+        }
+      }
+    });
+
+    // BroadcastChannel for faster tab messaging (if supported)
+    try {
+      if ('BroadcastChannel' in window) {
+        const bc = new BroadcastChannel('draw-channel');
+        bc.onmessage = (m) => {
+          if (m?.data?.type === 'draw-ended') onCountdownZero(m.data.payload ?? {});
+        };
+        window.__drawBroadcastChannel = bc;
+      }
+    } catch (err) {
+      // ignore
+    }
+  })();
 </script>
 @endscript
+

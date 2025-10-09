@@ -31,6 +31,8 @@ trait TicketFormPagination
 
     public array $latest_draw_ids = [];
 
+     public array $draw_detail_ids = [];
+
     public array $selected_draw = [];
 
     public $drawPerPage = 12;
@@ -203,43 +205,7 @@ trait TicketFormPagination
         $this->latest_draw_list = array_merge($this->latest_draw_list, $uniqueDraws);
     }
 
-    // public function loadTickets($reset = false)
-    // {
-    //     if ($reset) {
-    //         $this->ticket_page = 1;
-    //         $this->ticket_list = [];
-    //         $this->loaded_tickets_ids = [];
-    //     }
-    //     if ($this->is_edit_mode) {
-    //         $query = Ticket::query()
-    //             ->where('id', $this->current_ticket_id)
-    //             ->forUser($this->auth_user->id);
-    //     } else {
-    //         $query = Ticket::query()
-    //             ->whereDate('created_at', Carbon::today())
-    //             ->forUser($this->auth_user->id);
-    //     }
-
-    //     $count = (clone $query)->count();
-    //     $this->ticketPerPage = $count <= 5 ? 10 : $this->ticketPerPage;
-
-    //     $paginatedTickets = $query->orderBy('ticket_number', 'desc')
-    //         ->paginate($this->ticketPerPage, ['*'], 'ticket_page', $this->ticket_page);
-
-    //     $newTickets = collect($paginatedTickets->items())->map(fn ($d) => $d['ticket_number'])->merge(collect($this->selected_ticket_number));
-    //     $uniqueTickets = $newTickets->reject(function ($ticket_number) {
-    //         return in_array($ticket_number, $this->loaded_tickets_ids, true);
-    //     })->sortDesc()
-    //         ->values()
-    //         ->all();
-
-    //     foreach ($uniqueTickets as $ticket_number) {
-    //         $this->loaded_tickets_ids[] = $ticket_number;
-    //     }
-    //     $this->ticket_list = array_merge($this->ticket_list, $uniqueTickets);
-    // }
-
-
+   
 public function loadTickets($reset = false)
 {
     if ($reset) {

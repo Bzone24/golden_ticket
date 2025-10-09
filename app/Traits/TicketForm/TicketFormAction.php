@@ -21,6 +21,10 @@ trait TicketFormAction
     
     public $auto_select_count;
 
+    public bool $is_view_only = false;
+public array $view_only_aggregated_options = [];
+public array $view_only_cross_abc = [];
+
     /**
      * Parse a time string that may be "h:i a", "H:i", or "H:i:s" into a Carbon instance
      * in Asia/Kolkata timezone. Handles mixed historical data safely.
@@ -163,24 +167,31 @@ trait TicketFormAction
 }
  
     // select ticket number
-  public function handleTicketSelect($ticket_number)
+public function handleTicketSelect($ticket_number)
 {
+    // 🔹 Reset temporary caches & errors
     $this->clearAllOptionsIntoCache();
     $this->clearAllCrossAbcIntoCache();
     $this->resetError();
 
+    // 🔹 Load the selected ticket (include soft-deleted if needed)
     $this->selected_ticket = $this->auth_user->tickets()
+        ->withTrashed()
         ->where('ticket_number', $ticket_number)
-        ->first() ?? null;
+        ->first();
+
+    // 🔹 Determine if this is a submitted (view-only) ticket
+    $this->is_view_only = $this->selected_ticket ? true : false;
+    $this->selected_ticket_number = $ticket_number;
 
     $selected_draw_ids = collect();
 
     if ($this->selected_ticket) {
-        $this->selected_ticket_number = $ticket_number;
-
         $drawIds = $this->getActiveDrawIds();
 
+        // -----------------------------------------------------------
         // 🔹 Simple ABC (aggregate across draws)
+        // -----------------------------------------------------------
         $ticketOptions = $this->auth_user->ticketOptions()
             ->where('ticket_id', $this->selected_ticket->id)
             ->get();
@@ -189,41 +200,33 @@ trait TicketFormAction
             $aggregated = [];
 
             foreach ($ticketOptions as $opt) {
-                // A qty
-                if ($opt->a_qty > 0) {
-                    $key = 'A|' . $opt->number;
-                    if (!isset($aggregated[$key])) {
-                        $aggregated[$key] = ['option' => 'A', 'number' => $opt->number, 'qty' => 0, 'total' => 0];
+                foreach (['a_qty' => 'A', 'b_qty' => 'B', 'c_qty' => 'C'] as $field => $label) {
+                    if ($opt->$field > 0) {
+                        $key = "{$label}|{$opt->number}";
+                        if (!isset($aggregated[$key])) {
+                            $aggregated[$key] = [
+                                'option' => $label,
+                                'number' => $opt->number,
+                                'qty' => 0,
+                                'total' => 0,
+                            ];
+                        }
+                        $aggregated[$key]['qty'] += $opt->$field;
+                        $aggregated[$key]['total'] += $opt->$field * \App\Models\Draw::PRICE;
                     }
-                    $aggregated[$key]['qty']   += $opt->a_qty;
-                    $aggregated[$key]['total'] += $opt->a_qty * \App\Models\Draw::PRICE;
-                }
-
-                // B qty
-                if ($opt->b_qty > 0) {
-                    $key = 'B|' . $opt->number;
-                    if (!isset($aggregated[$key])) {
-                        $aggregated[$key] = ['option' => 'B', 'number' => $opt->number, 'qty' => 0, 'total' => 0];
-                    }
-                    $aggregated[$key]['qty']   += $opt->b_qty;
-                    $aggregated[$key]['total'] += $opt->b_qty * \App\Models\Draw::PRICE;
-                }
-
-                // C qty
-                if ($opt->c_qty > 0) {
-                    $key = 'C|' . $opt->number;
-                    if (!isset($aggregated[$key])) {
-                        $aggregated[$key] = ['option' => 'C', 'number' => $opt->number, 'qty' => 0, 'total' => 0];
-                    }
-                    $aggregated[$key]['qty']   += $opt->c_qty;
-                    $aggregated[$key]['total'] += $opt->c_qty * \App\Models\Draw::PRICE;
                 }
             }
 
+            // 🔹 Store aggregated options: use view-only array or cache
             if (!empty($aggregated)) {
-                $this->optionStoreToCache(collect($aggregated)->values());
+                if ($this->is_view_only) {
+                    $this->view_only_aggregated_options = collect($aggregated)->values()->all();
+                } else {
+                    $this->optionStoreToCache(collect($aggregated)->values());
+                }
             }
 
+            // collect all draws used by these options
             $optDraws = $ticketOptions->pluck('draw_detail_id')
                 ->map(fn($id) => (string) $id)
                 ->unique();
@@ -231,8 +234,10 @@ trait TicketFormAction
             $selected_draw_ids = $selected_draw_ids->merge($optDraws);
         }
 
-        // 🔹 Cross ABC (unchanged)
-        $cross_abc = $this->auth_user->crossAbc()
+        // -----------------------------------------------------------
+        // 🔹 Cross ABC (grouped per draw)
+        // -----------------------------------------------------------
+        $crossAbc = $this->auth_user->crossAbc()
             ->where('ticket_id', $this->selected_ticket->id)
             ->where(function ($query) use ($drawIds) {
                 foreach ($drawIds as $id) {
@@ -241,10 +246,14 @@ trait TicketFormAction
             })
             ->get();
 
-        if ($cross_abc->isNotEmpty()) {
-            $this->storeCrossAbcIntoCache($cross_abc);
+        if ($crossAbc->isNotEmpty()) {
+            if ($this->is_view_only) {
+                $this->view_only_cross_abc = $crossAbc->map(fn($c) => $c->toArray())->all();
+            } else {
+                $this->storeCrossAbcIntoCache($crossAbc);
+            }
 
-            $crossDraws = $cross_abc
+            $crossDraws = $crossAbc
                 ->pluck('draw_details_ids')
                 ->flatten()
                 ->filter()
@@ -253,24 +262,69 @@ trait TicketFormAction
 
             $selected_draw_ids = $selected_draw_ids->merge($crossDraws);
         }
+
+        // -----------------------------------------------------------
+        // 🔹 Draw labels for header display (used in Blade)
+        // -----------------------------------------------------------
+       $this->view_only_draw_labels = \App\Models\DrawDetail::with('draw.game')
+    ->whereIn('id', $selected_draw_ids)
+    ->get()
+    ->map(function($d) {
+        $labelTime = '';
+
+        try {
+            // use your helper that tries multiple formats
+            if (method_exists($this, 'parseTimeToCarbon') && !empty($d->start_time)) {
+                $start = $this->parseTimeToCarbon($d->start_time);
+                $labelTime = $start->format('h:i a');
+            } elseif (!empty($d->start_time)) {
+                // defensive fallback
+                $labelTime = \Carbon\Carbon::parse($d->start_time)->format('h:i a');
+            }
+        } catch (\Throwable $e) {
+            // if parse fails, use raw string (trimmed) to avoid exceptions
+            $labelTime = trim((string) ($d->start_time ?? ''));
+        }
+
+        $gameName = $d->game->name ?? '';
+        return trim($labelTime . ' | ' . $gameName);
+    })
+    ->values()
+    ->toArray();
+
     }
 
-   $this->selected_draw = $selected_draw_ids->isNotEmpty()
-    ? $selected_draw_ids->unique()->map(fn($id) => (string) $id)->values()->toArray()
-    : [(string) $this->draw_detail_ids];
+    // -----------------------------------------------------------
+    // 🔹 Finalize selected draws
+    // -----------------------------------------------------------
+    $this->selected_draw = $selected_draw_ids->isNotEmpty()
+        ? $selected_draw_ids->unique()->map(fn($id) => (string) $id)->values()->toArray()
+        : (array) $this->draw_detail_ids;
 
-        // 🔹 Load full draw details for header display
-$this->selectedDraws = \App\Models\DrawDetail::with('draw.game')
-    ->whereIn('id', $this->selected_draw)
-    ->get();
+    $this->selectedDraws = \App\Models\DrawDetail::with('draw.game')
+        ->whereIn('id', $this->selected_draw)
+        ->get();
 
-    $this->setStoreOptions($this->selected_draw);
-
-    $this->getTimes();
-    $this->loadOptions(true);
-    $this->loadAbcData(true);
-    $this->dispatch('checked-draws', drawIds: $this->selected_draw);
+    // -----------------------------------------------------------
+    // 🔹 Handle editable vs view-only modes
+    // -----------------------------------------------------------
+    if ($this->is_view_only) {
+        // only compute times/totals — no mutation
+        $this->getTimes();
+        $this->calculateFinalTotal();
+        $this->calculateCrossFinalTotal();
+        $this->dispatch('checked-draws', drawIds: $this->selected_draw);
+    } else {
+        // editable flow — reload caches and UI data
+        $this->setStoreOptions($this->selected_draw);
+        $this->getTimes();
+        $this->loadOptions(true);
+        $this->loadAbcData(true);
+        $this->dispatch('checked-draws', drawIds: $this->selected_draw);
+    }
 }
+
+
 
 public function deleteTicketDraws(array $drawDetailIds)
 {

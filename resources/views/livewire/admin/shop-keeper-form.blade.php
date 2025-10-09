@@ -88,7 +88,7 @@
                             @enderror
                         </div>
 
-                        @hasrole('shopkeeper')
+                        {{-- @hasrole('shopkeeper') --}}
                             <div class="mb-3 col-12">
                                 <label class="form-label">Per-game limits</label>
                                 <div class="row g-3">
@@ -128,7 +128,7 @@
                                     @endforeach
                                 </div>
                             </div>
-                        @endhasrole
+                        {{-- @endhasrole --}}
 
                     </div>
 

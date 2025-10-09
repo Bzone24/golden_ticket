@@ -227,21 +227,39 @@ class DrawProfilLossDataTable extends DataTable
             ->editColumn('game_id', function ($draw_detail) {
                 return $this->getGameName($draw_detail);
             })
-            ->editColumn('end_time', function ($draw_detail) {
-                $end_time = Carbon::parse($draw_detail->end_time)->format('h:i a');
+           
+// Show end_time + 1 minute in the UI (links to detail)
+->editColumn('end_time', function ($draw_detail) {
+    try {
+        // parse stored end_time, add one minute, convert to desired timezone and zero seconds
+        $end = Carbon::parse($draw_detail->end_time)
+            ->setTimezone('Asia/Kolkata')
+            ->setSecond(0)
+            ->addMinute(); // <-- add one minute for display
+    } catch (\Throwable $e) {
+        $end = Carbon::now('Asia/Kolkata')->setSecond(0)->addMinute();
+    }
 
-                $url = $this->isAdminSeg()
-                    ? route('admin.draw.detail.list', ['drawDetail' => $draw_detail->id, 'user_id' => $this->userId])
-                    : route('dashboard.draw.details.list', ['drawDetail' => $draw_detail->id]);
+    $end_time = $end->format('h:i a');
 
-                return "<a href='$url' class='text-primary h6'>$end_time</a>";
-            })
-            ->filterColumn('end_time', function ($query, $keyword) {
-                $keyword = strtolower($keyword);
-                $query->whereRaw("TIME_FORMAT(end_time, '%h:%i %p') LIKE ?", ["%{$keyword}%"])
-                    ->orWhereRaw("TIME_FORMAT(end_time, '%l %p') LIKE ?", ["%{$keyword}%"])
-                    ->orWhereRaw("TIME_FORMAT(end_time, '%H:%i') LIKE ?", ["%{$keyword}%"]);
-            })
+    $url = $this->isAdminSeg()
+        ? route('admin.draw.detail.list', ['drawDetail' => $draw_detail->id, 'user_id' => $this->userId])
+        : route('dashboard.draw.details.list', ['drawDetail' => $draw_detail->id]);
+
+    return "<a href='{$url}' class='text-primary h6'>{$end_time}</a>";
+})
+
+// Ensure filtering/search matches the displayed +1 minute time
+->filterColumn('end_time', function ($query, $keyword) {
+    $keyword = strtolower($keyword);
+
+    // Use DATE_ADD to match the displayed value (end_time + 1 minute) when searching
+    $query->whereRaw("LOWER(TIME_FORMAT(DATE_ADD(end_time, INTERVAL 1 MINUTE), '%h:%i %p')) LIKE ?", ["%{$keyword}%"])
+          ->orWhereRaw("LOWER(DATE_FORMAT(DATE_ADD(end_time, INTERVAL 1 MINUTE), '%l %p')) LIKE ?", ["%{$keyword}%"])
+          ->orWhereRaw("LOWER(TIME_FORMAT(DATE_ADD(end_time, INTERVAL 1 MINUTE), '%H:%i')) LIKE ?", ["%{$keyword}%"]);
+})
+
+
             ->filterColumn('tq', function ($query, $keyword) {
                 $query->whereRaw('CAST(computed_tq AS CHAR) LIKE ?', ["%{$keyword}%"]);
             })
@@ -351,7 +369,11 @@ class DrawProfilLossDataTable extends DataTable
                 }
 
                 $now = Carbon::now()->setTimezone('Asia/Kolkata')->setSecond(0);
-                $hasAnyClaim = !empty($draw_detail->claim_a) || !empty($draw_detail->claim_b) || !empty($draw_detail->claim_c);
+                $hasAnyClaim = (
+    ($draw_detail->claim_a !== null && $draw_detail->claim_a !== '') ||
+    ($draw_detail->claim_b !== null && $draw_detail->claim_b !== '') ||
+    ($draw_detail->claim_c !== null && $draw_detail->claim_c !== '')
+);
                 $dataClaimed = $hasAnyClaim ? 1 : 0;
                 $segment = request()->segment(1);
                 $dataAttrs = "data-draw-detail-id=\"{$draw_detail_id}\" data-draw-id=\"{$draw_id}\" data-claimed=\"{$dataClaimed}\"";

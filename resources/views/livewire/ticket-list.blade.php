@@ -16,116 +16,130 @@
                     </tr>
                 </thead>
                 <tbody>
-              @forelse ($ticket_list as $ticket_number)
+                @forelse ($ticket_list as $ticket_number)
+                    @php
+                        // Prefer the preloaded keyed collection from Livewire ($ticketsForView)
+                        $ticketModel = null;
+
+                        if (isset($ticketsForView) && $ticketsForView instanceof \Illuminate\Support\Collection) {
+                            $ticketModel = $ticketsForView->get($ticket_number);
+                        } elseif (isset($ticketsForView) && is_array($ticketsForView)) {
+                            $ticketModel = $ticketsForView[$ticket_number] ?? null;
+                        }
+
+                        // Defensive fallback: if not preloaded, fetch single ticket (rare)
+                        if (!$ticketModel) {
+                            $ticketModel = \App\Models\Ticket::withTrashed()
+                                ->where('ticket_number', $ticket_number)
+                                ->first();
+                        }
+
+                        // last event for audit info (you can also preload this in loadTickets() later)
+                        $lastEvent = $ticketModel
+                            ? DB::table('ticket_events')
+                                ->where('ticket_id', $ticketModel->id)
+                                ->orderBy('created_at', 'desc')
+                                ->first()
+                            : null;
+
+                        // Compute totals using the safe "active" relations or precomputed sums
+                        $tq = 0;
+                        $crossAmt = 0;
+
+                        if ($ticketModel) {
+                            // Prefer database-summed attributes (set by withSum in loadTickets)
+                            if (isset($ticketModel->total_a_qty) || isset($ticketModel->total_b_qty) || isset($ticketModel->total_c_qty)) {
+                                $tq = (int)(
+                                    ($ticketModel->total_a_qty ?? 0)
+                                    + ($ticketModel->total_b_qty ?? 0)
+                                    + ($ticketModel->total_c_qty ?? 0)
+                                );
+                            } else {
+                                // fallback: use activeOptions relation (ensures voided rows excluded)
+                                try {
+                                    $tq = (int)(
+                                        ($ticketModel->activeOptions()->sum('a_qty') ?? 0)
+                                        + ($ticketModel->activeOptions()->sum('b_qty') ?? 0)
+                                        + ($ticketModel->activeOptions()->sum('c_qty') ?? 0)
+                                    );
+                                } catch (\Throwable $e) {
+                                    $tq = (int) ($ticketModel->tq ?? 0);
+                                }
+                            }
+
+                            if (isset($ticketModel->total_cross_amt)) {
+                                $crossAmt = (int) ($ticketModel->total_cross_amt ?? 0);
+                            } else {
+                                try {
+                                    $crossAmt = (int) ($ticketModel->activeCrossDetails()->sum('amount') ?? 0);
+                                } catch (\Throwable $e) {
+                                    $crossAmt = (int) ($ticketModel->total_cross_amt ?? 0);
+                                }
+                            }
+                        }
+
+                        // Determine view-only: ticket exists and is not trashed (submitted)
+                        $isSubmitted = (bool) $ticketModel && ! $ticketModel->trashed();
+                    @endphp
+
+                    <tr
+                        data-ticket-id="{{ optional($ticketModel)->id }}"
+                        data-deleted="{{ $ticketModel && $ticketModel->trashed() ? '1' : '0' }}"
+                        data-view-only="{{ $isSubmitted ? '1' : '0' }}"
+                    >
+                        <td class="align-middle text-center">
     @php
-        // Prefer the preloaded keyed collection from Livewire ($ticketsForView)
-        $ticketModel = null;
-
-        if (isset($ticketsForView) && $ticketsForView instanceof \Illuminate\Support\Collection) {
-            $ticketModel = $ticketsForView->get($ticket_number);
-        } elseif (isset($ticketsForView) && is_array($ticketsForView)) {
-            $ticketModel = $ticketsForView[$ticket_number] ?? null;
-        }
-
-        // Defensive fallback: if not preloaded, fetch single ticket (rare)
-        if (!$ticketModel) {
-            $ticketModel = \App\Models\Ticket::withTrashed()
-                ->where('ticket_number', $ticket_number)
-                ->first();
-        }
-
-        // last event for audit info (you can also preload this in loadTickets() later)
-        $lastEvent = $ticketModel
-            ? DB::table('ticket_events')
-                ->where('ticket_id', $ticketModel->id)
-                ->orderBy('created_at', 'desc')
-                ->first()
-            : null;
-
-        // Compute totals using the safe "active" relations or precomputed sums
-        $tq = 0;
-        $crossAmt = 0;
-
-        if ($ticketModel) {
-            // Prefer database-summed attributes (set by withSum in loadTickets)
-            if (isset($ticketModel->total_a_qty) || isset($ticketModel->total_b_qty) || isset($ticketModel->total_c_qty)) {
-                $tq = (int)(
-                    ($ticketModel->total_a_qty ?? 0)
-                    + ($ticketModel->total_b_qty ?? 0)
-                    + ($ticketModel->total_c_qty ?? 0)
-                );
-            } else {
-                // fallback: use activeOptions relation (ensures voided rows excluded)
-                try {
-                    $tq = (int)(
-                        ($ticketModel->activeOptions()->sum('a_qty') ?? 0)
-                        + ($ticketModel->activeOptions()->sum('b_qty') ?? 0)
-                        + ($ticketModel->activeOptions()->sum('c_qty') ?? 0)
-                    );
-                } catch (\Throwable $e) {
-                    $tq = (int) ($ticketModel->tq ?? 0);
-                }
-            }
-
-            if (isset($ticketModel->total_cross_amt)) {
-                $crossAmt = (int) ($ticketModel->total_cross_amt ?? 0);
-            } else {
-                try {
-                    $crossAmt = (int) ($ticketModel->activeCrossDetails()->sum('amount') ?? 0);
-                } catch (\Throwable $e) {
-                    $crossAmt = (int) ($ticketModel->total_cross_amt ?? 0);
-                }
-            }
-        }
+        $isDeleted = $ticketModel && $ticketModel->trashed();
+        $isSubmitted = $ticketModel && !$ticketModel->trashed();
     @endphp
 
-    <tr data-ticket-id="{{ optional($ticketModel)->id }}" data-deleted="{{ $ticketModel && $ticketModel->trashed() ? '1' : '0' }}">
-        <td class="align-middle text-center">
-            <input
-                class="form-check-input"
-                type="radio"
-                name="selected_ticket"
-                id="ticket_{{ $ticket_number }}"
-                value="{{ $ticket_number }}"
-                @checked($ticket_number == $selected_ticket_number)
-                wire:click="handleTicketSelect('{{ $ticket_number }}')"
-                @if($ticketModel && $ticketModel->trashed()) disabled @endif
-            >
-        </td>
+    <input
+        class="form-check-input"
+        type="radio"
+        name="selected_ticket"
+        id="ticket_{{ $ticket_number }}"
+        value="{{ $ticket_number }}"
+        @checked($ticket_number == $selected_ticket_number)
+        wire:click="handleTicketSelect('{{ $ticket_number }}')"
+        @if($isDeleted || $isSubmitted) disabled @endif
+    >
+</td>
+    
 
-        <td class="align-middle">
-            <label for="ticket_{{ $ticket_number }}" class="mb-0">
-                {{ $ticket_number }}
-            </label>
+                        <td class="align-middle">
+                            <label for="ticket_{{ $ticket_number }}" class="mb-0">
+                                {{ $ticket_number }}
+                            </label>
 
-            @if(($ticketModel && $ticketModel->trashed()) || ($lastEvent && $lastEvent->event_type === 'DELETE'))
-                <span class="badge bg-danger ms-2">Deleted</span>
-            @elseif($lastEvent)
-                <span class="badge bg-warning ms-2">Edited</span>
-            @endif
-        </td>
+                            @if(($ticketModel && $ticketModel->trashed()) || ($lastEvent && $lastEvent->event_type === 'DELETE'))
+                                <span class="badge bg-danger ms-2">Deleted</span>
+                            @elseif($isSubmitted)
+                                <span class="badge bg-secondary ms-2">Submitted</span>
+                            @elseif($lastEvent)
+                                <span class="badge bg-warning ms-2">Edited</span>
+                            @endif
+                        </td>
 
-        <td class="text-warning fw-bold align-middle">{{ $tq }}</td>
-        <td class="text-info fw-bold align-middle">{{ $crossAmt }}</td>
+                        <td class="text-warning fw-bold align-middle">{{ $tq }}</td>
+                        <td class="text-info fw-bold align-middle">{{ $crossAmt }}</td>
 
-        <td class="align-middle text-center">
-            @if($ticketModel && (!$lastEvent || $lastEvent->event_type !== 'DELETE') && !$ticketModel->trashed())
-                <button
-                    class="btn btn-sm btn-danger"
-                    onclick="confirmDelete({{ $ticketModel->id }}, '{{ $ticket_number }}')">
-                    Delete
-                </button>
-            @else
-                <span class="text-muted small">—</span>
-            @endif
-        </td>
-    </tr>
-@empty
-    <tr>
-        <td colspan="5" class="text-center text-muted">No tickets found.</td>
-    </tr>
-@endforelse
-
+                        <td class="align-middle text-center">
+                            @if($ticketModel && (!$lastEvent || $lastEvent->event_type !== 'DELETE') && !$ticketModel->trashed())
+                                <button
+                                    class="btn btn-sm btn-danger"
+                                    onclick="confirmDelete({{ $ticketModel->id }}, '{{ $ticket_number }}')">
+                                    Delete
+                                </button>
+                            @else
+                                <span class="text-muted small">—</span>
+                            @endif
+                        </td>
+                    </tr>
+                @empty
+                    <tr>
+                        <td colspan="5" class="text-center text-muted">No tickets found.</td>
+                    </tr>
+                @endforelse
                 </tbody>
             </table>
         </div>

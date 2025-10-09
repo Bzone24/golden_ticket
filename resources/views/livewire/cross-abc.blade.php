@@ -38,7 +38,7 @@
                 <label class="form-label text-light fw-bold" for="cross_combination">Comb</label>
                 <!-- final Enter still calls Livewire save method (unchanged) -->
                 <input type="text" id="cross_combination" wire:model.defer="cross_combination"
-                    wire:keydown.enter.prevent="enterKeyPressOnCrossAbc('focus-cross-a','cross_combination')"
+                    wire:keydown.enter.prevent="enterKeyPressOnCrossAbc('focus-cross-abc','cross_combination')"
                     class="form-control bg-light text-dark border-warning cross-input" placeholder="Enter Combination">
                 @error('cross_combination')
                     <span class="text-danger small">{{ $message }}</span>
