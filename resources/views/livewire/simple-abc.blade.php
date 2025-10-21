@@ -1,13 +1,13 @@
 <div class="card shadow-lg border-0 rounded-3 bg-dark text-light mb-1" style="height: 550px;" >
     <!-- Header -->
-    <div class="card-header bg-gradient text-white rounded-top" style="background:#431549;">
+    <div class="card-header bg-success text-dark rounded-top" >
         <h3 class="text-center mb-0">
             <i class="bi bi-journal-text me-2" ></i> Simple ABC
         </h3>
     </div>
 
     <!-- Body -->
-    <div class="card-body" style="background:#43233b;">
+    <div class="card-body" style="background:#efefe8;">
         {{-- ✅ Ticket Info --}}
         {{-- @if ($selected_ticket)
             <div class="text-center mb-3 p-2 rounded" style="background:#333; color:#fff;">
@@ -16,14 +16,14 @@
             </div>
         @endif --}}
 
-        <div class="row mb-3 p-2 rounded" style="background:#5b1e63;"
+        <div class="row mb-3 p-2 rounded" style="background:#d2ced2;"
              x-data
              @focus-qty.window="document.getElementById('qty')?.focus()"
              @focus-abc.window="document.getElementById('abc')?.focus()">
 
            <!-- ABC Input -->
 <div class="col-6">
-    <label class="form-label text-white fw-bold" for="abc">ABC</label>
+    <label class="btn btn-success btn-sm fw-bold px-2 py-1" for="abc">ABC</label>
     <input
         type="text"
         class="form-control bg-light text-dark border-dark cross-input"
@@ -47,7 +47,7 @@
 
 <!-- Qty Input -->
 <div class="col-6">
-    <label class="form-label text-white fw-bold" for="qty">Qty</label>
+    <label class="btn btn-danger btn-sm fw-bold px-2 py-1" for="qty">Qty</label>
     <input
         type="text"
         class="form-control bg-light text-dark border-dark cross-input"
@@ -100,7 +100,7 @@
                    x-on:keydown.enter.prevent="$dispatch('focus-a_qty')"                     
                    x-on:keydown.down.prevent="$dispatch('focus-b'); if (window.$wire) $wire.call('calculateTotal','a')"
                    x-on:keydown.right.prevent="$dispatch('focus-a_qty'); if (window.$wire) $wire.call('calculateTotal','a')"
-                   x-on:keydown.tab.prevent="if (window.$wire) $wire.call('keyTab','a')"
+                   x-on:keydown.tab="if (window.$wire) $wire.call('keyTab','a')"
                    x-on:keydown.up.prevent="$dispatch('focus-abc')" >
         </td>
         <td>
@@ -108,7 +108,7 @@
                    id="input_a_qty" wire:model.defer="a_qty"
                    x-on:keydown.left.prevent="$dispatch('focus-a'); if (window.$wire) $wire.call('calculateTotal','a')"
                    x-on:keydown.down.prevent="$dispatch('focus-b_qty'); if (window.$wire) $wire.call('calculateTotal','a')"
-                   x-on:keydown.tab.prevent="if (window.$wire) $wire.call('keyTab','a')"
+                   x-on:keydown.tab="if (window.$wire) $wire.call('keyTab','a')"
                    wire:keydown.enter.prevent="keyEnter('a','focus-a')"
                    x-on:keydown.up.prevent="$dispatch('focus-abc')"
                    x-on:keydown.right.prevent="$dispatch('focus-cross-a')">  <!-- existing save -> cache -->
@@ -126,14 +126,14 @@
                    x-on:keydown.up.prevent="$dispatch('focus-a'); if (window.$wire) $wire.call('calculateTotal','b')"
                    x-on:keydown.down.prevent="$dispatch('focus-c'); if (window.$wire) $wire.call('calculateTotal','b')"
                    x-on:keydown.right.prevent="$dispatch('focus-b_qty'); if (window.$wire) $wire.call('calculateTotal','b')"
-                   x-on:keydown.tab.prevent="if (window.$wire) $wire.call('keyTab','b')">
+                   x-on:keydown.tab="if (window.$wire) $wire.call('keyTab','b')">
         </td>
         <td>
             <input type="text" class="form-control bg-light text-dark border-warning text-center number_qty"
                    id="input_b_qty" wire:model.defer="b_qty"
                    x-on:keydown.left.prevent="$dispatch('focus-b'); if (window.$wire) $wire.call('calculateTotal','b')"
                    x-on:keydown.down.prevent="$dispatch('focus-c_qty'); if (window.$wire) $wire.call('calculateTotal','b')"
-                   x-on:keydown.tab.prevent="if (window.$wire) $wire.call('keyTab','b')"
+                   x-on:keydown.tab="if (window.$wire) $wire.call('keyTab','b')"
                    x-on:keydown.up.prevent="$dispatch('focus-a_qty'); if (window.$wire) $wire.call('calculateTotal','b')"
                    wire:keydown.enter.prevent="keyEnter('b','focus-b')"
                    x-on:keydown.right.prevent="$dispatch('focus-cross-a')">
@@ -150,14 +150,14 @@
                    x-on:keydown.enter.prevent="$dispatch('focus-c_qty')"                   
                    x-on:keydown.up.prevent="$dispatch('focus-b'); if (window.$wire) $wire.call('calculateTotal','c')"
                    x-on:keydown.right.prevent="$dispatch('focus-c_qty'); if (window.$wire) $wire.call('calculateTotal','c')"
-                   x-on:keydown.tab.prevent="if (window.$wire) $wire.call('keyTab','c')">
+                   x-on:keydown.tab="if (window.$wire) $wire.call('keyTab','c')">
         </td>
         <td>
             <input type="text" class="form-control bg-light text-dark border-warning text-center number_qty"
                    id="input_c_qty" wire:model.defer="c_qty"
                    x-on:keydown.left.prevent="$dispatch('focus-c'); if (window.$wire) $wire.call('calculateTotal','c')"
                    x-on:keydown.up.prevent="$dispatch('focus-b_qty'); if (window.$wire) $wire.call('calculateTotal','c')"
-                   x-on:keydown.tab.prevent="if (window.$wire) $wire.call('keyTab','c')"
+                   x-on:keydown.tab="if (window.$wire) $wire.call('keyTab','c')"
                    wire:keydown.enter.prevent="keyEnter('c','focus-c')"
                    x-on:keydown.right.prevent="$dispatch('focus-cross-a')">
         </td>
@@ -213,15 +213,17 @@
   }
 
 .custom-table2 {
-    background-color: #5b1e63;
+    background-color: #d2ced2;
 }
 .custom-table2 thead th {
-    background-color: #5b1e63 !important;
-    color: #fff !important;
+    background-color: #d2ced2 !important;
+    color: #100e0e !important;
 }
 .custom-table2 tbody td {
-    background-color: #743194; /* light purple for body */
+    background-color: #d2ced2; /* light purple for body */
     color: #000;
 }
 </style>
 @endpush
+
+

@@ -5,243 +5,194 @@ namespace App\Http\Livewire;
 use Illuminate\Support\Facades\DB;
 use Livewire\Component;
 use Livewire\WithPagination;
+use Carbon\Carbon;
 
 class CrossTrace extends Component
 {
     use WithPagination;
 
+    // UI state
+
+    // public bool $debug = true;
+
     public int $perPage = 50;
     public string $search = '';
     public string $optionFilter = '';
     public bool $pairsOnly = true;
-    public ?int $draw_detail_id = null;
 
-    // details state (users modal)
-    public bool $showingUsers = false;
-    public string $detailsNormalizedOption = '';
-    public string $detailsNumber = '';
+    // main sorting
+    public string $sortField = 'draw_time';
+    public string $sortDirection = 'desc';
 
-    public int|null $detailsDrawId = null;
-    public string $detailsGame = '';
+    // per-draw sorting
+    public string $subSortField = 'users_count';
+    public string $subSortDirection = 'desc';
+
+    // date filter default -> today
+    public ?string $dateFilter = null;
+
+
+    // draw/time filter when clicking a draw time
+    public $selectedDrawTime = null;
+
+    // row-level details
     public array $detailUsers = [];
-
-    // tickets state (user's tickets modal)
-    public bool $showingUserTickets = false;
     public array $userTickets = [];
-    public int|null $ticketUserId = null;
+    public string $detailsGame = '';
+    public string $detailsNormalizedOption = '';
+    public $detailsNumber = null;
     public string $ticketUserName = '';
 
- public string $sortField = 'draw_time';
-public string $sortDirection = 'desc';
+    // debug toggle (set true when debugging)
+    public bool $debug = true;
 
-// per-draw table sorting
-public string $subSortField = 'users_count';
-public string $subSortDirection = 'desc';
-
-
-public ?string $selectedDrawTime = null;
-
-
-    protected $listeners = [
-        'ticketCreated' => '$refresh',
-        'ticketUpdated' => '$refresh',
-        'ticketDeleted' => '$refresh',
+    protected $queryString = [
+        'dateFilter' => ['as' => 'end_date'],
     ];
 
-    public function updatingSearch()       { $this->resetPage(); }
-    public function updatingOptionFilter() { $this->resetPage(); }
-    public function updatingPairsOnly()    { $this->resetPage(); }
-    public function updatingPerPage()      { $this->resetPage(); }
-
-    /**
-     * Main render: aggregated rows grouped by draw (game + time) and normalized option+number
-     */
-
- public function sortBy(string $field)
-{
-    if ($this->sortField === $field) {
-        $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
-    } else {
-        $this->sortField = $field;
-        $this->sortDirection = 'asc';
+    public function mount()
+    {
+        // if not set from query string, default to today's date in Asia/Kolkata
+        if (empty($this->dateFilter)) {
+            $this->dateFilter = \Carbon\Carbon::today('Asia/Kolkata')->toDateString();
+        } else {
+            // normalize format to Y-m-d (in case UI sends other format)
+            try {
+                $this->dateFilter = \Carbon\Carbon::parse($this->dateFilter)->toDateString();
+            } catch (\Exception $e) {
+                $this->dateFilter = \Carbon\Carbon::today('Asia/Kolkata')->toDateString();
+            }
+        }
     }
 
-    $this->resetPage();
-}
 
-public function sortSubBy(string $field)
-{
-    if ($this->subSortField === $field) {
-        $this->subSortDirection = $this->subSortDirection === 'asc' ? 'desc' : 'asc';
-    } else {
-        $this->subSortField = $field;
-        $this->subSortDirection = 'asc';
+
+    public function updatingSearch()
+    {
+        $this->resetPage();
+    }
+    public function updatingPerPage()
+    {
+        $this->resetPage();
+    }
+    public function updatingOptionFilter()
+    {
+        $this->resetPage();
+    }
+    public function updatingPairsOnly()
+    {
+        $this->resetPage();
+    }
+    public function updatingDateFilter()
+    {
+        $this->resetPage();
+    }
+    public function updatingSortField()
+    {
+        $this->resetPage();
     }
 
-    // no pagination to reset here
-}
+    public function sortBy(string $field)
+    {
+        if ($this->sortField === $field) {
+            $this->sortDirection = $this->sortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->sortField = $field;
+            $this->sortDirection = 'asc';
+        }
+    }
 
-public function filterByDrawTime(string $drawTime)
+
+
+    public function sortSubBy(string $field)
+    {
+        if ($this->subSortField === $field) {
+            $this->subSortDirection = $this->subSortDirection === 'asc' ? 'desc' : 'asc';
+        } else {
+            $this->subSortField = $field;
+            $this->subSortDirection = 'asc';
+        }
+    }
+
+    public function filterByDrawTime($dt)
+    {
+        $this->selectedDrawTime = $dt;
+    }
+
+    public function clearDrawFilter()
+    {
+        $this->selectedDrawTime = null;
+        $this->resetPage();
+    }
+
+    // show users for main table (by draw_detail_id)
+public function showUsers($drawDetailId = 0, string $game = '', string $pairType = '', string $number = '')
 {
-    // store the raw draw_time (from DB) to filter by
-    $this->selectedDrawTime = $drawTime;
-    $this->resetPage();
-}
+    // set UI state
+    $this->detailsGame = $game;
+    $this->detailsNormalizedOption = strtoupper(trim($pairType ?? ''));
+    $this->detailsNumber = $number;
+    $this->detailUsers = [];
 
-public function clearDrawFilter()
-{
-    $this->selectedDrawTime = null;
-    $this->resetPage();
-}
+    // if caller passed draw_detail_id, set selectedDrawTime for label (optional)
+    if (!empty($drawDetailId)) {
+        $drawend = DB::table('draw_details')->where('id', $drawDetailId)->value('end_time');
+        if ($drawend) {
+            $this->selectedDrawTime = $drawend;
+        }
+    }
 
+    $pair = strtoupper(trim($pairType ?? ''));
+    $normalizedTypeExpr = "UPPER(TRIM(COALESCE(NULLIF(cad.type, ''), '')))";
 
-
-public function render()
-{
-    $normalizedExpr = "UPPER(REPLACE(COALESCE(NULLIF(TRIM(cad.option), ''), 'TEAS'), '-', ''))";
-    $allowedPairs = ['AB', 'AC', 'BC'];
-
-    // Base builder used in both modes
-    $base = DB::table('cross_abc_details as cad')
+    $q = DB::table('cross_abc_details as cad')
+        ->leftJoin('users as u', 'u.id', '=', 'cad.user_id')
+        ->leftJoin('users as sk', 'sk.id', '=', 'u.created_by')
         ->leftJoin('draw_details as dd', 'dd.id', '=', 'cad.draw_detail_id')
         ->leftJoin('draws as d', 'd.id', '=', 'dd.draw_id')
         ->leftJoin('games as g', 'g.id', '=', 'd.game_id')
-        ->join('users as u', 'u.id', '=', 'cad.user_id')
-        ->where('cad.voided', 0);
+        ->where('cad.voided', 0)
+        ->where('cad.number', $number);
 
-    // common search filter
-    if ($this->search) {
-        $s = trim($this->search);
-        $base->where(function($q) use ($s, $normalizedExpr) {
-            $q->where('cad.number', 'like', "%{$s}%")
-              ->orWhere('cad.option', 'like', "%{$s}%")
-              ->orWhereRaw("{$normalizedExpr} LIKE ?", ['%'.strtoupper($s).'%'])
-              ->orWhere('g.name', 'like', "%{$s}%")
-              ->orWhereRaw("COALESCE(dd.start_time, d.start_time) LIKE ?", ["%{$s}%"]);
+    if (!empty($pair)) {
+        $q->whereRaw("{$normalizedTypeExpr} = ?", [$pair]);
+    }
+
+    // Prefer exact draw_detail_id (most reliable). If not provided, fall back to date filter (same behavior as showUsersForDraw).
+    if (!empty($drawDetailId)) {
+        $q->where('cad.draw_detail_id', $drawDetailId);
+    } else {
+        $date = $this->dateFilter ?? \Carbon\Carbon::today('Asia/Kolkata')->toDateString();
+        // use same fallback used by showUsersForDraw: match by created_at date OR dd.date or end_time-date
+        $q->where(function($sub) use ($date) {
+            $sub->whereDate('cad.created_at', $date)
+                ->orWhere('dd.date', $date)
+                ->orWhereRaw("DATE(COALESCE(dd.end_time, d.end_time)) = ?", [$date]);
         });
     }
 
-    // groups-only filter
-    if ($this->pairsOnly) {
-        $base->whereIn(DB::raw($normalizedExpr), $allowedPairs);
-    }
-
-    if (!empty($this->optionFilter)) {
-        $base->where(DB::raw($normalizedExpr), strtoupper($this->optionFilter));
-    }
-
-    // -- DRAW-TIME FILTER MODE --
-    if ($this->selectedDrawTime) {
-        $dt = $this->selectedDrawTime;
-
-        // compute aggregated rows grouped by game + normalized_option + number for the selected draw_time
-        // we match COALESCE(dd.start_time, d.start_time) exactly to the selected draw_time string
-     $rowsPerGame = (clone $base)
-    ->selectRaw("
-        g.name AS game,
-        {$normalizedExpr} AS normalized_option,
-        cad.number,
-        COUNT(DISTINCT cad.user_id) AS users_count,
-        COUNT(DISTINCT u.created_by) AS shopkeepers_count,
-        SUM(CASE WHEN cad.amount REGEXP '^[0-9]+$' THEN CAST(cad.amount AS UNSIGNED) ELSE 0 END) AS total_amount,
-        COUNT(*) AS total_rows
-    ")
-    ->whereRaw("COALESCE(dd.start_time, d.start_time) = ?", [$dt])
-    ->groupBy('game','normalized_option','cad.number')
-    ->orderBy('game')
-    ->orderBy($this->subSortField, $this->subSortDirection)
-    ->get()
-    ->groupBy('game');
-
-
-        // rowsPerGame is a collection keyed by game name; convert to array for Blade
-        $perGame = [];
-        foreach ($rowsPerGame as $game => $collect) {
-            $perGame[$game] = $collect->map(fn($r) => (array)$r)->values()->all();
-        }
-
-        return view('livewire.cross-trace', [
-            'rows' => collect([]), // keep rows as empty so original list not shown
-            'perGame' => $perGame,
-        ]);
-    }
-
-    // -- DEFAULT MODE (main table) --
-    // apply draw_detail_id filter if provided (keeps existing behavior)
-    if ($this->draw_detail_id) {
-        $base->where('cad.draw_detail_id', $this->draw_detail_id);
-    }
-
-    // group and order using alias-aware sortField
-    $query = (clone $base)->selectRaw("
-        g.name AS game,
-        COALESCE(dd.start_time, d.start_time) AS draw_time,
-        cad.draw_detail_id,
-        MIN(cad.option) AS option_sample,
-        {$normalizedExpr} AS normalized_option,
-        cad.number,
-        COUNT(DISTINCT cad.user_id) AS users_count,
-        COUNT(DISTINCT u.created_by) AS shopkeepers_count,
-        SUM(CASE WHEN cad.amount REGEXP '^[0-9]+$' THEN CAST(cad.amount AS UNSIGNED) ELSE 0 END) AS total_amount,
-        COUNT(*) AS total_rows
-    ");
-
-    $query = $query->groupBy('game','dd.start_time','d.start_time','cad.draw_detail_id','normalized_option','cad.number');
-
-    // apply sorting: special-case draw_time alias
-    if ($this->sortField === 'draw_time') {
-        $query->orderByRaw("COALESCE(dd.start_time, d.start_time) {$this->sortDirection}");
-    } else {
-        // ensure safe fields - using alias names from selectRaw
-        $query->orderBy($this->sortField, $this->sortDirection);
-    }
-
-    $rows = $query->paginate($this->perPage);
-
-    return view('livewire.cross-trace', [
-        'rows' => $rows,
-        'perGame' => [], // empty when not filtering by draw_time
-    ]);
-}
-
-
-
-    /**
-     * Show users who contributed to a specific draw+game+option+number
-     * Called from blade: wire:click="showUsers(drawId, game, normalizedOption, number)"
-     */
- public function showUsers(int $drawDetailId, string $game, string $normalizedOption, string $number)
-{
-    $this->detailsGame = $game;
-    $this->detailsNormalizedOption = $normalizedOption;
-    $this->detailsNumber = $number;
-
-    $normalizedExpr = "UPPER(REPLACE(COALESCE(NULLIF(TRIM(cad.option), ''), 'TEAS'), '-', ''))";
-
-    $rows = DB::table('cross_abc_details as cad')
-        ->selectRaw('
+    // select aggregated user rows (only columns that exist)
+    $q->selectRaw('
             cad.user_id,
-            COALESCE(u.username, u.login_id, "") as user_name,
+            COALESCE(u.username, u.login_id, CONCAT("User-", cad.user_id)) AS user_name,
             u.username,
             u.login_id,
-            COALESCE(sk.username, sk.login_id, "—") as shopkeeper_name,
-            COUNT(cad.id) as tickets_count,
+            COALESCE(sk.username, sk.login_id, "—") AS shopkeeper_name,
+            COUNT(DISTINCT cad.ticket_id) as tickets_count,
             SUM(CASE WHEN cad.amount REGEXP "^[0-9]+$" THEN CAST(cad.amount AS UNSIGNED) ELSE 0 END) as total_amount
         ')
-        ->join('users as u', 'u.id', '=', 'cad.user_id')
-        ->leftJoin('users as sk', 'sk.id', '=', 'u.created_by')
-        ->where('cad.voided', 0)
-        ->where('cad.draw_detail_id', $drawDetailId)
-        ->whereRaw("{$normalizedExpr} = ?", [strtoupper($normalizedOption)])
-        ->where('cad.number', $number)
-        ->groupBy('cad.user_id', 'u.username', 'u.login_id', 'sk.username', 'sk.login_id')
-        ->orderByDesc('tickets_count')
-        ->get();
+      ->groupBy('cad.user_id','u.username','u.login_id','sk.username','sk.login_id')
+      ->orderByDesc('tickets_count');
+
+    // DEBUG: if you need to inspect generated SQL, uncomment the next two lines before testing
+    // \Log::debug('CrossTrace showUsers SQL', ['sql' => $q->toSql(), 'bindings' => $q->getBindings()]);
+
+    $rows = $q->get();
 
     $this->detailUsers = $rows->map(function ($row) {
         return [
             'user_id' => $row->user_id,
-            'user_name' => $row->user_name,
+            'user_name' => trim($row->user_name) ?: ('User-'.$row->user_id),
             'username' => $row->username ?? null,
             'login_id' => $row->login_id ?? null,
             'shopkeeper_name' => $row->shopkeeper_name ?? '—',
@@ -250,50 +201,76 @@ public function render()
         ];
     })->toArray();
 
+    if (empty($this->detailUsers)) {
+        \Log::debug('CrossTrace showUsers no results', [
+            'drawDetailId' => $drawDetailId,
+            'game' => $game,
+            'pair' => $pair,
+            'number' => $number,
+            'dateFilter' => $this->dateFilter ?? null,
+            // 'sql' => $q->toSql(), 'bindings' => $q->getBindings(), // enable if needed
+        ]);
+    }
+
+    // open modal using browser event so the frontend JS picks it up
     $this->dispatch('show-users-modal');
 }
 
 
-public function showUsersForDraw(string $drawTime, string $game, string $normalizedOption, string $number)
+
+
+    // show users for a specific draw time + game table (per-draw view)
+public function showUsersForDraw($drawDetailId = 0, string $game = '', string $pairType = '', string $number = '')
 {
-    // keep UI state for modal
     $this->detailsGame = $game;
-    $this->detailsNormalizedOption = $normalizedOption;
+    $this->detailsNormalizedOption = strtoupper(trim($pairType ?? ''));
     $this->detailsNumber = $number;
-    $this->selectedDrawTime = $drawTime;
+    $this->detailUsers = [];
 
-    // normalization expression (same as other queries)
-    $normalizedExpr = "UPPER(REPLACE(COALESCE(NULLIF(TRIM(cad.option), ''), 'TEAS'), '-', ''))";
+    $pair = strtoupper(trim($pairType ?? ''));
+    $normalizedTypeExpr = "UPPER(TRIM(COALESCE(NULLIF(cad.type, ''), '')))";
 
-    // Build query: use parameter binding (no raw unquoted values)
-    $rows = DB::table('cross_abc_details as cad')
-        ->selectRaw('
-            cad.user_id,
-            COALESCE(u.username, u.login_id, "") as user_name,
-            u.username,
-            u.login_id,
-            COALESCE(sk.username, sk.login_id, "—") as shopkeeper_name,
-            COUNT(cad.id) as tickets_count,
-            SUM(CASE WHEN cad.amount REGEXP "^[0-9]+$" THEN CAST(cad.amount AS UNSIGNED) ELSE 0 END) as total_amount
-        ')
-        ->join('users as u', 'u.id', '=', 'cad.user_id')
+    $q = DB::table('cross_abc_details as cad')
+        ->leftJoin('users as u', 'u.id', '=', 'cad.user_id')
         ->leftJoin('users as sk', 'sk.id', '=', 'u.created_by')
         ->leftJoin('draw_details as dd', 'dd.id', '=', 'cad.draw_detail_id')
         ->leftJoin('draws as d', 'd.id', '=', 'dd.draw_id')
         ->leftJoin('games as g', 'g.id', '=', 'd.game_id')
-        ->whereRaw("{$normalizedExpr} = ?", [strtoupper($normalizedOption)])
-        ->where('cad.number', $number)
-        ->whereRaw("COALESCE(dd.start_time, d.start_time) = ?", [$drawTime])
         ->where('cad.voided', 0)
-        ->groupBy('cad.user_id', 'u.username', 'u.login_id', 'sk.username', 'sk.login_id')
-        ->orderByDesc('tickets_count')
-        ->get();
+        ->where('cad.number', $number);
 
-    // Map into array matching your blade (safe conversion)
+    // ✅ use normalized type match (case-insensitive)
+    if (!empty($pair)) {
+        $q->whereRaw("$normalizedTypeExpr = ?", [$pair]);
+    }
+
+    // ✅ precise draw linkage
+    if (!empty($drawDetailId)) {
+        $q->where('cad.draw_detail_id', $drawDetailId);
+    } else {
+        $date = $this->dateFilter ?? \Carbon\Carbon::today('Asia/Kolkata')->toDateString();
+        $q->whereDate('cad.created_at', $date);
+    }
+
+    $q->selectRaw('
+        cad.user_id,
+        COALESCE(u.username, u.login_id, CONCAT("User-", cad.user_id)) AS user_name,
+        u.username,
+        u.login_id,
+        COALESCE(sk.username, sk.login_id, "—") AS shopkeeper_name,
+        COUNT(DISTINCT cad.ticket_id) AS tickets_count,
+        SUM(CASE WHEN cad.amount REGEXP "^[0-9]+$" THEN CAST(cad.amount AS UNSIGNED) ELSE 0 END) AS total_amount
+    ')
+    ->groupBy('cad.user_id', 'u.username', 'u.login_id', 'sk.username', 'sk.login_id')
+    ->orderByDesc('tickets_count');
+
+    $rows = $q->get();
+
+    // ✅ map cleanly
     $this->detailUsers = $rows->map(function ($row) {
         return [
             'user_id' => $row->user_id,
-            'user_name' => $row->user_name,
+            'user_name' => trim($row->user_name) ?: ('User-'.$row->user_id),
             'username' => $row->username ?? null,
             'login_id' => $row->login_id ?? null,
             'shopkeeper_name' => $row->shopkeeper_name ?? '—',
@@ -302,74 +279,263 @@ public function showUsersForDraw(string $drawTime, string $game, string $normali
         ];
     })->toArray();
 
+    if (empty($this->detailUsers)) {
+        \Log::debug('CrossTrace showUsersForDraw no results', [
+            'drawDetailId' => $drawDetailId,
+            'pair' => $pair,
+            'number' => $number,
+            'dateFilter' => $this->dateFilter ?? null,
+            // 'sql' => $q->toSql(), 'bindings' => $q->getBindings(),
+        ]);
+    }
+
     $this->dispatch('show-users-modal');
 }
 
 
 
 
-    /**
-     * Show a selected user's ticket rows for the given draw/game/option/number.
-     * Called from Users modal: wire:click="showUserTickets(user_id)"
-     */
-public function showUserTickets(int $userId)
+
+
+    // show tickets for a single user (in modal)
+  public function showUserTickets($userId, $pairType = '', $number = '', $drawDetailId = 0)
 {
-    $this->ticketUserId = $userId;
-    $this->ticketUserName = DB::table('users')->where('id', $userId)->value('name') ?? 'User';
+    $pair = strtoupper(trim($pairType ?? ''));
+    $number = trim($number ?? '');
+    $this->ticketUserName = $userId ? optional(DB::table('users')->where('id',$userId)->first())->username ?? "User-$userId" : 'User';
+    $this->userTickets = [];
 
-    $normalizedExpr = "UPPER(REPLACE(COALESCE(NULLIF(TRIM(cad.option), ''), 'TEAS'), '-', ''))";
+    // Build query: find ticket ids from cross_abc_details that match this selection, then select tickets
+    $cadQ = DB::table('cross_abc_details as cad')
+        ->leftJoin('draw_details as dd', 'dd.id', '=', 'cad.draw_detail_id')
+        ->leftJoin('draws as d', 'd.id', '=', 'dd.draw_id')
+        ->leftJoin('tickets as t', 't.id', '=', 'cad.ticket_id')
+        ->leftJoin('games as g', 'g.id', '=', 'd.game_id')
+        ->where('cad.voided', 0)
+        ->where('cad.user_id', $userId)
+        ->where('cad.number', $number);
 
-    $tickets = DB::table('cross_abc_details as cad')
-        ->selectRaw('
-            cad.id,
-            cad.created_at,
-            cad.option,
-            cad.number,
-            CAST(CASE WHEN cad.amount REGEXP "^[0-9]+$" THEN cad.amount ELSE 0 END AS UNSIGNED) AS amount,
-            cad.voided,
-            COALESCE(dd.start_time, d.start_time, dd.time, d.time) AS time,
-            g.name AS game,
-        ')
-        ->leftJoin('draw_details as dd','dd.id','=','cad.draw_detail_id')
-        ->leftJoin('draws as d','d.id','=','dd.draw_id')
-        ->leftJoin('games as g','g.id','=','d.game_id')
-        ->where('cad.user_id', $this->ticketUserId)
-        ->where('cad.draw_detail_id', $this->detailsDrawId)
-        ->whereRaw("{$normalizedExpr} = ?", [$this->detailsNormalizedOption])
-        ->where('cad.number', $this->detailsNumber)
-        ->orderByDesc('cad.created_at')
-        ->get()
-        ->map(function($t) {
-            return [
-                'id' => $t->id,
-                'created_at' => $t->created_at,
-                'option' => $t->option,
-                'number' => $t->number,
-                'amount' => (int) $t->amount,
-                'voided' => (int) $t->voided,
-                'time' => $t->time,   // matches Blade $t['time']
-                'game' => $t->game,   // matches Blade $t['game']
-            ];
-        })->toArray();
+    if (!empty($pair)) {
+        $cadQ->whereRaw("UPPER(TRIM(COALESCE(NULLIF(cad.type, ''), ''))) = ?", [$pair]);
+    }
 
-    $this->userTickets = $tickets;
-    $this->showingUserTickets = true;
+    if (!empty($drawDetailId)) {
+        $cadQ->where('cad.draw_detail_id', $drawDetailId);
+    } else {
+        $date = $this->dateFilter ?? \Carbon\Carbon::today('Asia/Kolkata')->toDateString();
+        $cadQ->where(function($sub) use ($date) {
+            $sub->where('dd.date', $date)
+                ->orWhereRaw("DATE(COALESCE(dd.end_time, d.end_time)) = ?", [$date])
+                ->orWhereDate('cad.created_at', $date);
+        });
+    }
+
+    // select relevant ticket info (distinct tickets)
+    $cadQ->selectRaw("
+        DISTINCT COALESCE(t.id, cad.ticket_id) AS ticket_id,
+        COALESCE(t.created_at, cad.created_at) AS created_at,
+        COALESCE(t.amount, SUM(CASE WHEN cad.amount REGEXP '^[0-9]+$' THEN CAST(cad.amount AS UNSIGNED) ELSE 0 END)) AS amount,
+        COALESCE(t.voided, 0) AS voided,
+        COALESCE(dd.end_time, d.end_time) AS time,
+        COALESCE(g.name, CONCAT('Game-', cad.game_id)) AS game,
+        cad.number
+    ")
+    ->groupBy('ticket_id','created_at','voided','time','game','cad.number');
+
+    $tickets = $cadQ->orderBy('created_at','desc')->get();
+
+    $this->userTickets = collect($tickets)->map(function($t) {
+        return [
+            'id' => $t->ticket_id,
+            'created_at' => $t->created_at,
+            'amount' => (int)$t->amount,
+            'voided' => (int)$t->voided,
+            'time' => $t->time,
+            'game' => $t->game,
+            'number' => $t->number,
+        ];
+    })->values()->all();
+
+    // open tickets modal
     $this->dispatch('show-user-tickets-modal');
 }
 
-
-
     public function closeUsers()
     {
-        $this->showingUsers = false;
         $this->detailUsers = [];
         $this->dispatch('hide-users-modal');
     }
 
     public function closeUserTickets()
     {
-        $this->showingUserTickets = false;
         $this->userTickets = [];
         $this->dispatch('hide-user-tickets-modal');
     }
+
+    public function render()
+{
+    // Use the 'type' column (AB/AC/BC) as the canonical pair value
+    $normalizedTypeExpr = "UPPER(TRIM(COALESCE(NULLIF(cad.type, ''), '')))";
+    $allowedPairs = ['AB', 'AC', 'BC'];
+
+    $base = DB::table('cross_abc_details as cad')
+        ->leftJoin('draw_details as dd', 'dd.id', '=', 'cad.draw_detail_id')
+        ->leftJoin('draws as d', 'd.id', '=', 'dd.draw_id')
+        ->leftJoin('games as g', 'g.id', '=', 'd.game_id')
+        ->leftJoin('users as u', 'u.id', '=', 'cad.user_id') // leftJoin so orphaned users don't drop rows
+        ->where('cad.voided', 0);
+
+    // Apply date filter (prefer dd.date, fallback to end_time or cad.created_at)
+    if (!empty($this->dateFilter)) {
+        $date = $this->dateFilter;
+        $base->where(function($q) use ($date) {
+            $q->where('dd.date', $date)
+              ->orWhereRaw("DATE(COALESCE(dd.end_time, d.end_time)) = ?", [$date])
+              ->orWhereDate('cad.created_at', $date);
+        });
+    }
+
+    // search (leave as-is, but when searching option consider cad.type too)
+    if ($this->search) {
+        $s = trim($this->search);
+        $base->where(function($q) use ($s, $normalizedTypeExpr) {
+            $q->where('cad.number', 'like', "%{$s}%")
+              ->orWhere('cad.option', 'like', "%{$s}%")
+              ->orWhereRaw("{$normalizedTypeExpr} LIKE ?", ['%'.strtoupper($s).'%'])
+              ->orWhere('g.name', 'like', "%{$s}%")
+              ->orWhereRaw("COALESCE(dd.end_time, d.end_time) LIKE ?", ["%{$s}%"]);
+        });
+    }
+
+    // pairsOnly: filter using cad.type (the 'type' column) — only if pairsOnly is truthy
+    if (!empty($this->pairsOnly)) {
+        $base->whereIn(DB::raw($normalizedTypeExpr), $allowedPairs);
+    }
+
+    // optionFilter: if user explicitly selected an option-type filter, convert to type form
+    if (!empty($this->optionFilter)) {
+        // if they pass e.g. 'AB' or 'A-B-C', normalize to AB/AC/BC using type pref
+        $base->where(DB::raw($normalizedTypeExpr), strtoupper($this->optionFilter));
+    }
+
+    // debug counts
+    $debugCounts = null;
+    if ($this->debug) {
+        $baseForTotal = clone $base;
+        $debugCounts = [
+            'totalRaw' => $baseForTotal->count(),
+            'by_draw_time' => null,
+            'by_ticket_created' => null,
+        ];
+
+        if (!empty($this->dateFilter)) {
+            $date = $this->dateFilter;
+            $debugCounts['by_draw_time'] = DB::table('cross_abc_details as cad')
+                ->leftJoin('draw_details as dd', 'dd.id', '=', 'cad.draw_detail_id')
+                ->leftJoin('draws as d', 'd.id', '=', 'dd.draw_id')
+                ->where('cad.voided', 0)
+                ->where(function($q) use ($date) {
+                    $q->where('dd.date', $date)
+                      ->orWhereRaw("DATE(COALESCE(dd.end_time, d.end_time)) = ?", [$date]);
+                })
+                ->count();
+
+            $debugCounts['by_ticket_created'] = DB::table('cross_abc_details as cad')
+                ->whereDate('cad.created_at', $date)
+                ->where('cad.voided', 0)
+                ->count();
+        }
+    }
+
+    // per-draw detailed view
+    // per-draw detailed view (replacement)
+// per-draw detailed view (replace existing rowsPerGame block)
+if (!empty($this->selectedDrawTime)) {
+    $dt = $this->selectedDrawTime;
+
+    $rowsPerGame = (clone $base)
+        ->selectRaw("
+            COALESCE(g.name, CONCAT('Game-', cad.game_id)) AS game,
+            UPPER(TRIM(COALESCE(NULLIF(cad.type, ''), ''))) AS pair_type,
+            cad.number,
+            DATE(MIN(COALESCE(dd.end_time, d.end_time))) AS date,
+            MIN(COALESCE(dd.end_time, d.end_time)) AS draw_time,
+            COUNT(DISTINCT cad.user_id) AS users_count,
+            COUNT(DISTINCT u.created_by) AS shopkeepers_count,
+            SUM(CASE WHEN cad.amount REGEXP '^[0-9]+$' THEN CAST(cad.amount AS UNSIGNED) ELSE 0 END) AS total_amount,
+            COUNT(*) AS total_rows,
+            cad.draw_detail_id
+        ")
+        ->where(function($q) use ($dt) {
+            // allow matching by dd.date or exact end_time fallback
+            $q->where('dd.date', $dt)
+              ->orWhereRaw("COALESCE(dd.end_time, d.end_time) = ?", [$dt]);
+        })
+        ->groupBy('game','pair_type','cad.number','cad.draw_detail_id')
+        ->orderBy('game')
+        ->orderBy($this->subSortField ?? 'users_count', $this->subSortDirection ?? 'desc')
+        ->get()
+        ->groupBy('game');
+
+    $perGame = [];
+    foreach ($rowsPerGame as $game => $collect) {
+        $perGame[$game] = $collect->map(fn($r) => (array)$r)->values()->all();
+    }
+
+    return view('livewire.cross-trace', [
+        'rows' => collect([]),
+        'perGame' => $perGame,
+        'debugCounts' => $debugCounts,
+    ]);
+}
+
+
+
+
+    // DEFAULT aggregated table
+$query = (clone $base)->selectRaw("
+    COALESCE(g.name, CONCAT('Game-', cad.game_id)) AS game,
+    MIN(COALESCE(dd.end_time, d.end_time)) AS draw_time,               -- aggregated
+    DATE(MIN(COALESCE(dd.end_time, d.end_time))) AS date,             -- derived from aggregated
+    cad.draw_detail_id,
+    MIN(cad.option) AS option_sample,
+    UPPER(TRIM(COALESCE(NULLIF(cad.type, ''), ''))) AS pair_type,
+    cad.number,
+    COUNT(DISTINCT cad.user_id) AS users_count,
+    COUNT(DISTINCT u.created_by) AS shopkeepers_count,
+    SUM(CASE WHEN cad.amount REGEXP '^[0-9]+$' THEN CAST(cad.amount AS UNSIGNED) ELSE 0 END) AS total_amount,
+    COUNT(*) AS total_rows
+");
+
+// group rows per game, draw_detail_id, pair_type, number
+$query = $query->groupBy('game','cad.draw_detail_id','pair_type','cad.number');
+
+// ordering by aggregated draw_time (use alias)
+$query = $query->orderByRaw('MIN(COALESCE(dd.end_time, d.end_time)) DESC');
+
+    // sorting
+    if ($this->sortField === 'draw_time') {
+        $query->orderByRaw("COALESCE(dd.end_time, d.end_time) {$this->sortDirection}");
+    } elseif ($this->sortField === 'date') {
+        $query->orderByRaw("COALESCE(dd.date, DATE(COALESCE(dd.end_time, d.end_time))) {$this->sortDirection}");
+    } else {
+        $query->orderBy($this->sortField, $this->sortDirection);
+    }
+
+    // log the final query (optional/debug)
+    \Log::debug('CrossTrace AGG SQL', [
+        'sql' => $query->toSql(),
+        'bindings' => $query->getBindings(),
+        'dateFilter' => $this->dateFilter,
+    ]);
+
+    $rows = $query->paginate($this->perPage);
+
+    return view('livewire.cross-trace', [
+        'rows' => $rows,
+        'perGame' => [],
+        'debugCounts' => $debugCounts,
+    ]);
+}
+
 }

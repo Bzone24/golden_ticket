@@ -1,18 +1,18 @@
 <div class="card shadow-lg border-0 rounded-3 bg-dark text-light py-0 mb-1" style="height: 550px;">
     <!-- Header -->
-    <div class="card-header bg-gradient text-white rounded-top " style="background:#431549;">
+    <div class="card-header bg-warning text-dark rounded-top " >
         <h3 class="text-center mb-0 py-0">
             <i class="bi bi-shuffle me-2"></i> Cross ABC
         </h3>
     </div>
 
     <!-- Body -->
-    <div class="card-body cross-body" style="background:#43233b;" x-data x-init="$nextTick(() => { /* Alpine root — required for your window events */ })">
+    <div class="card-body cross-body" style="background:#efefe8;" x-data x-init="$nextTick(() => { /* Alpine root — required for your window events */ })">
 
         <!-- ABC + Amt + Comb -->
-        <div class="row mb-3 p-2 rounded bg-cross-abc" style="background:#5b1e63;" aria-label= "Cross ABC quick entry">
+        <div class="row mb-3 p-2 rounded bg-cross-abc" style="background:#d2ced2;" aria-label= "Cross ABC quick entry">
             <div class="col-4">
-                <label class="form-label text-light fw-bold" for="cross_abc">ABC</label>
+               <label class="btn btn-success btn-sm fw-bold px-2 py-1" for="cross_abc">ABC</label>
                 <input type="text" id="cross_abc"  name="cross_abc_input" inputmode="numeric" maxlength="3"
                 
                 wire:model.defer="cross_abc_input"
@@ -25,7 +25,7 @@
             </div>
 
             <div class="col-4">
-                <label class="form-label text-light fw-bold" for="cross_qty">Amt</label>
+                <label class="btn btn-danger btn-sm fw-bold px-2 py-1" for="cross_qty">Amt</label>
                 <input type="text" id="cross_qty" wire:model.defer="cross_abc_amt"
                     x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-abc-combination'))"
                     class="form-control bg-light text-dark border-warning cross-input mynumber" placeholder="Enter Amt">
@@ -35,7 +35,7 @@
             </div>
 
             <div class="col-4">
-                <label class="form-label text-light fw-bold" for="cross_combination">Comb</label>
+                <label class="btn btn-dark btn-sm fw-bold px-2 py-1" for="cross_combination">Comb</label>
                 <!-- final Enter still calls Livewire save method (unchanged) -->
                 <input type="text" id="cross_combination" wire:model.defer="cross_combination"
                     wire:keydown.enter.prevent="enterKeyPressOnCrossAbc('focus-cross-abc','cross_combination')"
@@ -50,7 +50,7 @@
         <div class="row mb-3 p-2 rounded bg-single-abc">
             <div class="col-12 d-flex gap-2 align-items-end">
                 <div class="flex-grow-1">
-                    <label class="form-label text-light fw-bold" for="cross_a">A</label>
+                    <label class="btn btn-success btn-sm fw-bold px-2 py-1" for="cross_a">A</label>
                     <input type="text" id="cross_a" placeholder="Enter A" maxlength="5" wire:model.defer="cross_a"
                         x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-b'))"
                         class="form-control bg-light text-dark border-danger text-center cross-input cross_number">
@@ -60,7 +60,7 @@
                 </div>
 
                 <div class="flex-grow-1">
-                    <label class="form-label text-light fw-bold" for="cross_b">B</label>
+                    <label class="btn btn-warning btn-sm fw-bold px-2 py-1" for="cross_b">B</label>
                     <input type="text" id="cross_b" placeholder="Enter B" maxlength="5" wire:model.defer="cross_b"
                         x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-c'))"
                         class="form-control bg-light text-dark border-danger text-center cross-input cross_number">
@@ -70,7 +70,7 @@
                 </div>
 
                 <div class="flex-grow-1">
-                    <label class="form-label text-light fw-bold" for="cross_c">C</label>
+                    <label class="btn btn-info btn-sm fw-bold px-2 py-1"  for="cross_c">C</label>
                     <input type="text" id="cross_c" placeholder="Enter C" maxlength="5" wire:model.defer="cross_c"
                         x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-single-amt'))"
                         class="form-control bg-light text-dark border-danger text-center cross-input cross_number">
@@ -80,7 +80,7 @@
                 </div>
 
                 <div style="width:120px">
-                    <label class="form-label text-light fw-bold" for="cross_single_amount">Amt</label>
+                    <label class="btn btn-danger btn-sm fw-bold px-2 py-1" for="cross_single_amount">Amt</label>
                     <input type="text" id="cross_single_amount" wire:model.defer="cross_single_amount"
                         wire:keydown.enter.prevent="enterKeyPressOnCrossA('focus-cross-a','cross_single_amount')"
                         class="form-control bg-light text-dark border-danger text-center cross-input mynumber">
@@ -94,7 +94,7 @@
         <!-- AB -->
         <div class="row mb-3 p-2 rounded bg-pair-abc">
             <div class="col-4">
-                <label class="form-label text-light fw-bold" for="cross_ab">AB</label>
+                <label class="btn btn-success btn-sm fw-bold px-2 py-1" for="cross_ab">AB</label>
                 <input type="text" id="cross_ab"  maxlength="2" inputmode="numeric" wire:model.defer="cross_ab"
                     x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-ab-amt'))"
                     class="form-control bg-light text-dark border-dark cross-input cross_number" placeholder="Enter AB">
@@ -104,7 +104,7 @@
 
 
                 {{-- <div class="col-6"> --}}
-                <label class="form-label text-light fw-bold" for="cross_ab_amt">Amt</label>
+                <label class="btn btn-danger btn-sm fw-bold px-2 py-1" for="cross_ab_amt">Amt</label>
                 <input type="text" id="cross_ab_amt" wire:model.defer="cross_ab_amt" {{-- x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-bc'))" --}}
                     wire:keydown.enter.prevent="enterKeyPressOnCrossAb('focus-cross-ab','cross_ab_amt')"
                     class="form-control bg-light text-dark border-dark cross-input mynumber" placeholder="Enter Amt">
@@ -116,7 +116,7 @@
             <!-- BC -->
             {{-- <div class="row mb-3 p-2 rounded bg-pair-abc"> --}}
             <div class="col-4">
-                <label class="form-label text-light fw-bold" for="cross_bc">BC</label>
+                <label class="btn btn-warning btn-sm fw-bold px-2 py-1" for="cross_bc">BC</label>
                 <input type="text" id="cross_bc"  maxlength="2" inputmode="numeric" wire:model.defer="cross_bc"
                     x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-bc-amt'))"
                     class="form-control bg-light text-dark border-dark cross-input cross_number"
@@ -127,7 +127,7 @@
 
 
                 {{-- <div class="col-6"> --}}
-                <label class="form-label text-light fw-bold" for="cross_bc_amt">Amt</label>
+                <label class="btn btn-danger btn-sm fw-bold px-2 py-1" for="cross_bc_amt">Amt</label>
                 <input type="text" id="cross_bc_amt" wire:model.defer="cross_bc_amt" {{-- x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-ac'))" --}}
                     wire:keydown.enter.prevent="enterKeyPressOnCrossBc('focus-cross-bc','cross_bc_amt')"
                     class="form-control bg-light text-dark border-dark cross-input mynumber" placeholder="Enter Amt">
@@ -143,7 +143,7 @@
             <!-- AC -->
             {{-- <div class="row mb-0 p-2 rounded bg-pair-abc"> --}}
             <div class="col-4">
-                <label class="form-label text-light fw-bold" for="cross_ac">AC</label>
+                <label class="btn btn-info btn-sm fw-bold px-2 py-1" for="cross_ac">AC</label>
                 <input type="text" id="cross_ac"  maxlength="2" inputmode="numeric" wire:model.defer="cross_ac"
                     x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-ac-amt'))"
                     class="form-control bg-light text-dark border-dark cross-input cross_number"
@@ -154,7 +154,7 @@
                 {{-- </div> --}}
 
                 <div class="col-12">
-                    <label class="form-label text-light fw-bold" for="cross_ac_amt">Amt</label>
+                    <label class="btn btn-danger btn-sm fw-bold px-2 py-1" for="cross_ac_amt">Amt</label>
                     <input type="text" id="cross_ac_amt" wire:model.defer="cross_ac_amt" {{-- wire:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-ac'))" --}}
                         wire:keydown.enter.prevent="enterKeyPressOnCrossAc('focus-cross-ac','cross_ac_amt')"
                         class="form-control bg-light text-dark border-dark cross-input mynumber"
@@ -413,15 +413,15 @@ try { $el[0].dispatchEvent(new Event('change', { bubbles: true })); } catch (e) 
 
 <style>
     .bg-cross-abc {
-        background: #5b1e63 !important;
+        background: #d2ced2 !important;
     }
 
     .bg-single-abc {
-        background: #743194 !important;
+        background: #d2ced2 !important;
     }
 
     .bg-pair-abc {
-        background: #743194 !important;
+        background: #d2ced2 !important;
     }
 
     .cross-input {

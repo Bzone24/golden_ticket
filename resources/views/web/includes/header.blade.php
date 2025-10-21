@@ -9,9 +9,11 @@
     <div class="collapse navbar-collapse fw-bold" id="navbarNav">
       <ul class="navbar-nav me-auto">
         @if (Auth::check())
-          <li class="nav-item">
-            <a class="nav-link" href="{{ route('dashboard') }}">Dashboard</a>
-          </li>
+         <li class="nav-item fw-bold">
+  <a class="btn btn-warning text-dark fw-bold px-3 py-1" href="{{ route('dashboard') }}">
+    Dashboard
+  </a>
+</li>
         @endif
         {{-- <li class="nav-item"><a class="nav-link" href="#">About</a></li>
         <li class="nav-item"><a class="nav-link" href="#">Contact</a></li> --}}

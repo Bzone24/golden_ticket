@@ -1,9 +1,9 @@
-<div class="card mb-3 h-100 text-white" style="background:#5b1e63;">
+<div class="card mb-3 h-100 text-dark" style="background:#efefe8;">
 
     <!-- Timer Header -->
     @include('livewire.ticket-data-form')
 
-    <div class="card-header text-white">
+    <div class="card-header text-dark">
         <div class="d-flex justify-content-between align-items-center px-3 py-2 border-bottom w-100">
 
           
@@ -47,7 +47,7 @@
             @endphp
 
             
-            <h6 class="mb-0 w-100 text-center">
+            <h6 class="mb-0 w-100 text-center fw-bold">
                 @foreach ($this->selectedDraws as $key => $draw)
                     <strong>Draw:</strong> {{ $draw->formatResultTime() }} ,
                     {{ $draw->draw->game->name }} |

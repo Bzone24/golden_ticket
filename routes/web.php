@@ -52,7 +52,8 @@ Route::post('/api/telegram/webhook', function (Request $request) {
             if (!in_array($chatId, $allowedIds, true)) {
                 try {
                     TelegramHelper::sendMessage($chatId, "❌ Access Denied. You are not authorized.");
-                } catch (\Throwable $e) {}
+                } catch (\Throwable $e) {
+                }
                 return response('OK', 200);
             }
 
@@ -96,10 +97,10 @@ Route::post('/api/telegram/webhook', function (Request $request) {
                         }
 
                         if (
-    ($row->claim_a !== null && $row->claim_a !== '') ||
-    ($row->claim_b !== null && $row->claim_b !== '') ||
-    ($row->claim_c !== null && $row->claim_c !== '')
-) {
+                            ($row->claim_a !== null && $row->claim_a !== '') ||
+                            ($row->claim_b !== null && $row->claim_b !== '') ||
+                            ($row->claim_c !== null && $row->claim_c !== '')
+                        ) {
                             \Illuminate\Support\Facades\DB::rollBack();
                             TelegramHelper::sendMessage(
                                 $chatId,
@@ -148,7 +149,8 @@ Route::post('/api/telegram/webhook', function (Request $request) {
                             $livewire->claim_b = $row->claim_b;
                             $livewire->claim_c = $row->claim_c;
                             $livewire->save();
-                        } catch (\Throwable $e) {}
+                        } catch (\Throwable $e) {
+                        }
 
                         Cache::forget("telegram_stage_{$chatId}");
                         return response('OK', 200);
@@ -171,7 +173,8 @@ Route::post('/api/telegram/webhook', function (Request $request) {
             if (!in_array($chatId, $allowedIds, true)) {
                 try {
                     TelegramHelper::sendMessage($chatId, "❌ Access Denied. You are not authorized.");
-                } catch (\Throwable $e) {}
+                } catch (\Throwable $e) {
+                }
                 return response('OK', 200);
             }
 
@@ -384,6 +387,7 @@ Route::middleware('auth:web')->group(function () {
         return redirect('/');
     })->name('logout');
 });
+
 Route::prefix('admin')->middleware(['web', 'auth'])->group(function () {
     // Admin wallet pages (views handled by controller)
     Route::get('wallet/transactions', [AdminWalletController::class, 'transactionsPage'])
