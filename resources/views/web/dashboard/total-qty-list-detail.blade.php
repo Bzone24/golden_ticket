@@ -118,9 +118,10 @@
                                     $c_amounts[] = $drawDetail->totalCqty($i,auth()->user()->id);
                                 }
 
-                                $claim_a_amt = $drawDetail->claim_a ? $a_amounts[$drawDetail->claim_a] : 0;
-                                $claim_b_amt = $drawDetail->claim_b ? $a_amounts[$drawDetail->claim_b] : 0;
-                                $claim_c_amt = $drawDetail->claim_c ? $c_amounts[$drawDetail->claim_c] : 0;
+
+                                  $claim_a_amt = isset($drawDetail->claim_a) ? $a_amounts[$drawDetail->claim_a] : 0;
+$claim_b_amt = isset($drawDetail->claim_b) ? $b_amounts[$drawDetail->claim_b] : 0;
+$claim_c_amt = isset($drawDetail->claim_c) ? $c_amounts[$drawDetail->claim_c] : 0;
 
                                 $a_pl = $tq_a * 11 - $claim_a_amt * 100;
                                 $b_pl = $tq_b * 11 - $claim_b_amt * 100;

@@ -238,91 +238,134 @@
             return parseNum($td.text());
         }
 
-        function calculateTotalsFromDom() {
-            const totals = { tq: 0, t_amt: 0, claim_amt: 0, cross: 0, cross_claim: 0, p_and_l: 0 };
-            dtApi.rows({ page: 'current' }).every(function () {
-                const $tr = $(this.node());
-                const $tds = $tr.find('td');
+function calculateTotalsFromDom() {
+    // same logic as console above but using dtApi.rows...
+    const totals = { tq:0, t_amt:0, claim_amt:0, cross:0, cross_claim:0, p_and_l:0 };
+    const IDX_TQ = 2, IDX_CLAIM = 3, IDX_CROSS = 4, IDX_CROSS_CLAIM = 5, IDX_PL = 6;
+    const LIMIT_COUNT = 999; // counts must be <= LIMIT_COUNT to be included
 
-                const IDX_TQ = 2;
-                const IDX_TAMT = 3;
-                const IDX_CLAIM = 4;
-                const IDX_CROSS = 5;
-                const IDX_CROSS_CLAIM = 5;
-                const IDX_PL = 6;
+    function parseNumbersFromString(s){
+        if (!s) return [];
+        const matches = String(s).match(/-?\d{1,3}(?:[,.\d]*\d)?/g);
+        if (!matches) return [];
+        return matches.map(m => parseFloat(m.replace(/,/g,''))).filter(n => !isNaN(n));
+    }
+    function chooseSmallestUnder(nums, limit){
+        if (!nums || !nums.length) return 0;
+        const pos = nums.filter(n => isFinite(n) && n > 0 && n <= limit);
+        if (!pos.length) return 0;
+        const ints = pos.filter(n => Math.abs(n - Math.round(n)) < 1e-9);
+        if (ints.length) return Math.min(...ints);
+        return Math.min(...pos);
+    }
 
-                totals.tq += readCellValue($tds.eq(IDX_TQ));
-                totals.t_amt += readCellValue($tds.eq(IDX_TAMT));
-                totals.claim_amt += readCellValue($tds.eq(IDX_CLAIM));
-                totals.cross += readCellValue($tds.eq(IDX_CROSS));
-                totals.cross_claim += parseNum($tds.eq(IDX_CROSS_CLAIM).find('a[data-cross-claim]').attr('data-cross-claim') || 0);
-                totals.p_and_l += parseNum($tds.eq(IDX_PL).text());
-            });
-            return totals;
-        }
+    dtApi.rows({ page: 'current' }).every(function() {
+        const $tds = $(this.node()).find('td');
 
-        function renderServerTotalsRow(t) {
-            const clientTotals = calculateTotalsFromDom();
-            const tq = Number(t.tq ?? t.tq_total ?? 0);
-            const claim_amt = Number(t.claim_amt ?? t.claim_amount ?? 0);
-            const cross = Number(t.cross ?? t.cross_total ?? 0);
-            const cross_claim = Number(t.cross_claim ?? t.cross_claim_amount ?? 0);
-            const p_and_l = (t.p_and_l !== undefined && t.p_and_l !== null) ? Number(t.p_and_l) : clientTotals.p_and_l;
+        totals.tq += chooseSmallestUnder(parseNumbersFromString($tds.eq(IDX_TQ).text()), LIMIT_COUNT);
 
-            const html = `
-            <tr id="totals-row" class="totals-row">
-                <td style="background:#2c3e50;color:#fff;font-weight:700">TOTALS</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">-</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">${tq.toLocaleString()}</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">${cross.toLocaleString()}</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">${cross_claim.toLocaleString()}</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">${p_and_l.toLocaleString()}</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
-            </tr>`;
-            $(dtApi.table().body()).append(html);
+        // CLAIM: visible numbers only and must be <= LIMIT_COUNT
+        totals.claim_amt += chooseSmallestUnder(parseNumbersFromString($tds.eq(IDX_CLAIM).text()), LIMIT_COUNT);
 
-            updateFooterFromTotals({ tq, t_amt: null, claim_amt, cross, cross_claim, p_and_l });
-        }
+        // CROSS AMT: prefer data-value then visible
+        const dv = $tds.eq(IDX_CROSS).find('[data-value]').attr('data-value') || $tds.eq(IDX_CROSS).attr('data-value') || '';
+        const crossNums = (dv ? parseNumbersFromString(dv) : []).concat(parseNumbersFromString($tds.eq(IDX_CROSS).text()));
+        totals.cross += chooseSmallestUnder(crossNums, Number.POSITIVE_INFINITY);
 
-        function renderClientTotalsRow() {
-            const totals = calculateTotalsFromDom();
-            const html = `
-            <tr id="totals-row" class="totals-row">
-                <td style="background:#2c3e50;color:#fff;font-weight:700">TOTALS</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">-</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">${totals.tq.toLocaleString()}</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">${totals.cross.toLocaleString()}</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">${(totals.cross_claim ?? 0).toLocaleString()}</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">${totals.p_and_l.toLocaleString()}</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
-                <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
-            </tr>`;
-            $(dtApi.table().body()).append(html);
+        // CROSS CLAIM: visible numbers only and must be <= LIMIT_COUNT
+        totals.cross_claim += chooseSmallestUnder(parseNumbersFromString($tds.eq(IDX_CROSS_CLAIM).text()), LIMIT_COUNT);
 
-            updateFooterFromTotals({
-                tq: totals.tq,
-                t_amt: null,
-                claim_amt: totals.claim_amt,
-                cross: totals.cross,
-                cross_claim: totals.cross_claim,
-                p_and_l: totals.p_and_l
-            });
-        }
+        totals.p_and_l += (parseNumbersFromString($tds.eq(IDX_PL).text()).length ? parseNumbersFromString($tds.eq(IDX_PL).text())[0] : 0);
+    });
 
-        function updateFooterFromTotals(obj) {
-            const $f = $(dtApi.table().footer());
-            if (!$f.length) return;
-            $f.find('th').eq(0).text('TOTALS');
-            $f.find('th').eq(1).text('-');
-            $f.find('th').eq(2).text((obj.tq ?? 0).toLocaleString());
-            $f.find('th').eq(3).text('--');
-            $f.find('th').eq(4).text((obj.cross ?? 0).toLocaleString());
-            $f.find('th').eq(5).text((obj.cross_claim ?? 0).toLocaleString());
-            $f.find('th').eq(6).text((obj.p_and_l ?? 0).toLocaleString());
-        }
+    return totals;
+}
+
+
+
+
+function renderServerTotalsRow(serverTotals, clientTotals) {
+    // ensure clientTotals is available
+    clientTotals = clientTotals || calculateTotalsFromDom();
+
+    // normalize server keys (money totals)
+    const tq = Number(serverTotals.tq ?? serverTotals.tq_total ?? clientTotals.tq ?? 0);
+    const cross = Number(serverTotals.cross ?? serverTotals.cross_total ?? serverTotals.cross_amt ?? clientTotals.cross ?? 0);
+    const p_and_l = (serverTotals.p_and_l !== undefined && serverTotals.p_and_l !== null)
+        ? Number(serverTotals.p_and_l)
+        : clientTotals.p_and_l;
+
+    // IMPORTANT: use clientTotals for CLAIM and CROSS_CLAIM (visible counts)
+    const claim_amt = Number(clientTotals.claim_amt ?? 0);
+    const cross_claim = Number(clientTotals.cross_claim ?? 0);
+
+    const html = `
+    <tr id="totals-row" class="totals-row">
+        <td style="background:#2c3e50;color:#fff;font-weight:700">TOTALS</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">-</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${(tq ?? 0).toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${(claim_amt ?? 0).toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${(cross ?? 0).toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${(cross_claim ?? 0).toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${(p_and_l ?? 0).toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
+    </tr>`;
+
+    // append into DataTable body area
+    $(dtApi.table().body()).append(html);
+
+    // write footer: prefer server for some keys but override claim & cross_claim with clientCounts
+    updateFooterFromTotals({
+        tq: tq,
+        t_amt: null,
+        claim_amt: claim_amt,            // client count
+        cross: cross,                    // server money total (or client fallback)
+        cross_claim: cross_claim,        // client count
+        p_and_l: p_and_l
+    });
+}
+
+
+     function renderClientTotalsRow() {
+    const totals = calculateTotalsFromDom();
+    const html = `
+    <tr id="totals-row" class="totals-row">
+        <td style="background:#2c3e50;color:#fff;font-weight:700">TOTALS</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">-</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${totals.tq.toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${(totals.claim_amt ?? 0).toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${totals.cross.toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${(totals.cross_claim ?? 0).toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">${totals.p_and_l.toLocaleString()}</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
+        <td style="background:#2c3e50;color:#fff;font-weight:700">--</td>
+    </tr>`;
+    $(dtApi.table().body()).append(html);
+
+    updateFooterFromTotals({
+        tq: totals.tq,
+        t_amt: null,
+        claim_amt: totals.claim_amt,
+        cross: totals.cross,
+        cross_claim: totals.cross_claim,
+        p_and_l: totals.p_and_l
+    });
+}
+
+
+       function updateFooterFromTotals(obj) {
+    const $f = $(dtApi.table().footer());
+    if (!$f.length) return;
+    $f.find('th').eq(0).text('TOTALS');
+    $f.find('th').eq(1).text('-');
+    $f.find('th').eq(2).text((obj.tq ?? 0).toLocaleString());
+    $f.find('th').eq(3).text((obj.claim_amt ?? 0).toLocaleString());    // CLAIM now written properly
+    $f.find('th').eq(4).text((obj.cross ?? 0).toLocaleString());
+    $f.find('th').eq(5).text((obj.cross_claim ?? 0).toLocaleString());
+    $f.find('th').eq(6).text((obj.p_and_l ?? 0).toLocaleString());
+}
+
 
         function addTotalsRow() {
             removeTotalsRow();

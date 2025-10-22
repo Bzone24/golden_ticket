@@ -97,25 +97,32 @@ trait OptonsOperation
         $this->setStoreOptions($this->selected_draw);
     }
 
-    public function keyEnter($row_property, $focus)
-    {
-        $total = $this->calculateTotal($row_property);
-        $val = $this->{$row_property} ?? null;
-        $qty = $this->{$row_property . '_qty'} ?? null;
+  public function keyEnter($row_property, $focus)
+{
+    $total = $this->calculateTotal($row_property);
+    $val = $this->{$row_property} ?? null;
+    $qty = $this->{$row_property . '_qty'} ?? null;
 
-        if ($this->selected_draw && $val && $qty > 0) {
-            $options = [$this->addOptions($val, ucfirst($row_property), $qty, $total)];
-            $this->storeOptionsIntoCache($options);
-            $this->dispatch($focus);
+    // Accept "0" as valid number, reject only null/empty string.
+    $hasVal = !($val === null || trim((string)$val) === '');
 
-            $this->{$row_property} = '';
-            $this->{$row_property . '_qty'} = '';
-            $this->{'total_' . $row_property} = 0;
-            $this->resetError();
-        }
+    // Qty must be present, numeric and > 0 (rejects "0", "", null, non-numeric)
+    $hasQty = !($qty === null || trim((string)$qty) === '') && is_numeric($qty) && ((int)$qty > 0);
 
-        $this->setStoreOptions($this->selected_draw);
+    if ($this->selected_draw && $hasVal && $hasQty) {
+        $options = [$this->addOptions($val, ucfirst($row_property), $qty, $total)];
+        $this->storeOptionsIntoCache($options);
+        $this->dispatch($focus);
+
+        $this->{$row_property} = '';
+        $this->{$row_property . '_qty'} = '';
+        $this->{'total_' . $row_property} = 0;
+        $this->resetError();
     }
+
+    $this->setStoreOptions($this->selected_draw);
+}
+
 
     private function expandTicketOption($ticketOption)
     {
