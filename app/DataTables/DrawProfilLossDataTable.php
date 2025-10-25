@@ -121,67 +121,154 @@ class DrawProfilLossDataTable extends DataTable
         return $draw_detail->cross_amt;
     }
 
-    protected function getClaim($draw_detail)
-    {
-        $user = auth()->user();
-
-        if ($user->hasRole(['master'])) {
-            return $draw_detail->claim;
-        }
-
-        $a_claim = $draw_detail->claim_a;
-        $b_claim = $draw_detail->claim_b;
-        $c_claim = $draw_detail->claim_c;
-
-        if ($user->hasRole('admin')) {
-            $userIds = User::whereIn('created_by', function ($q) use ($user) {
-                $q->select('id')->from('users')->where('created_by', $user->id);
-            })->pluck('id');
-
-            $totals = $draw_detail->ticketOptions()
-                ->whereIn('user_id', $userIds)
-                ->selectRaw("
-                    SUM(CASE WHEN number = ? THEN a_qty ELSE 0 END) as a_total,
-                    SUM(CASE WHEN number = ? THEN b_qty ELSE 0 END) as b_total,
-                    SUM(CASE WHEN number = ? THEN c_qty ELSE 0 END) as c_total
-                ", [$a_claim, $b_claim, $c_claim])
-                ->first();
-
-            $a_qty = $totals->a_total ?? 0;
-            $b_qty = $totals->b_total ?? 0;
-            $c_qty = $totals->c_total ?? 0;
-        } elseif ($user->hasRole('shopkeeper')) {
-            $userIds = User::where('created_by', $user->id)->pluck('id');
-
-            $totals = $draw_detail->ticketOptions()
-                ->whereIn('user_id', $userIds)
-                ->selectRaw("
-                    SUM(CASE WHEN number = ? THEN a_qty ELSE 0 END) as a_total,
-                    SUM(CASE WHEN number = ? THEN b_qty ELSE 0 END) as b_total,
-                    SUM(CASE WHEN number = ? THEN c_qty ELSE 0 END) as c_total
-                ", [$a_claim, $b_claim, $c_claim])
-                ->first();
-
-            $a_qty = $totals->a_total ?? 0;
-            $b_qty = $totals->b_total ?? 0;
-            $c_qty = $totals->c_total ?? 0;
-        } else {
-            $a_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())->where('number', $a_claim)->sum('a_qty');
-            $b_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())->where('number', $b_claim)->sum('b_qty');
-            $c_qty = $draw_detail->ticketOptions()->where('user_id', $this->resolveUserId())->where('number', $c_claim)->sum('c_qty');
-        }
-
-        return $a_qty + $b_qty + $c_qty;
+  protected function getClaim($draw_detail, $forUserId = null)
+{
+    // safety
+    if (empty($draw_detail) || !isset($draw_detail->id)) {
+        return 0;
     }
 
-    protected function getResult($draw_detail)
-    {
-        $a_claim = $draw_detail->claim_a;
-        $b_claim = $draw_detail->claim_b;
-        $c_claim = $draw_detail->claim_c;
-
-        return "$a_claim  $b_claim  $c_claim";
+    // Master sees stored claim directly (keep same behavior)
+    $user = auth()->user();
+    if ($user && $user->hasRole(['master'])) {
+        return ($draw_detail->claim === null || $draw_detail->claim === '') ? 0 : (int) $draw_detail->claim;
     }
+
+    // Read claim fields — only NULL means "not set"; 0 is valid and must be matched
+    $a_claim = $draw_detail->claim_a;
+    $b_claim = $draw_detail->claim_b;
+    $c_claim = $draw_detail->claim_c;
+
+    // If none of the claim fields are set (all NULL) -> return 0 immediately
+    if ($a_claim === null && $b_claim === null && $c_claim === null) {
+        return 0;
+    }
+
+    // If a specific user id was provided, compute sums for that user only.
+    if (!is_null($forUserId)) {
+        // Use a single query to sum a/b/c quantities conditionally
+        $totals = $draw_detail->ticketOptions()
+            ->where('user_id', $forUserId)
+            ->selectRaw("
+                SUM(CASE WHEN number = ? THEN a_qty ELSE 0 END) as a_total,
+                SUM(CASE WHEN number = ? THEN b_qty ELSE 0 END) as b_total,
+                SUM(CASE WHEN number = ? THEN c_qty ELSE 0 END) as c_total
+            ", [$a_claim, $b_claim, $c_claim])
+            ->first();
+
+        $a_qty = $totals->a_total ?? 0;
+        $b_qty = $totals->b_total ?? 0;
+        $c_qty = $totals->c_total ?? 0;
+
+        return (int) ($a_qty + $b_qty + $c_qty);
+    }
+
+    // No specific user supplied: preserve your role-based aggregation logic
+    // Admin: see tickets of users created by sub-users of this admin
+    if ($user && $user->hasRole('admin')) {
+        $userIds = User::whereIn('created_by', function ($q) use ($user) {
+            $q->select('id')->from('users')->where('created_by', $user->id);
+        })->pluck('id');
+
+        // if no sub-users found, return 0
+        if ($userIds->isEmpty()) {
+            return 0;
+        }
+
+        $totals = $draw_detail->ticketOptions()
+            ->whereIn('user_id', $userIds)
+            ->selectRaw("
+                SUM(CASE WHEN number = ? THEN a_qty ELSE 0 END) as a_total,
+                SUM(CASE WHEN number = ? THEN b_qty ELSE 0 END) as b_total,
+                SUM(CASE WHEN number = ? THEN c_qty ELSE 0 END) as c_total
+            ", [$a_claim, $b_claim, $c_claim])
+            ->first();
+
+        $a_qty = $totals->a_total ?? 0;
+        $b_qty = $totals->b_total ?? 0;
+        $c_qty = $totals->c_total ?? 0;
+
+        return (int) ($a_qty + $b_qty + $c_qty);
+    }
+
+    // Shopkeeper: see tickets of users created by this shopkeeper
+    if ($user && $user->hasRole('shopkeeper')) {
+        $userIds = User::where('created_by', $user->id)->pluck('id');
+
+        if ($userIds->isEmpty()) {
+            return 0;
+        }
+
+        $totals = $draw_detail->ticketOptions()
+            ->whereIn('user_id', $userIds)
+            ->selectRaw("
+                SUM(CASE WHEN number = ? THEN a_qty ELSE 0 END) as a_total,
+                SUM(CASE WHEN number = ? THEN b_qty ELSE 0 END) as b_total,
+                SUM(CASE WHEN number = ? THEN c_qty ELSE 0 END) as c_total
+            ", [$a_claim, $b_claim, $c_claim])
+            ->first();
+
+        $a_qty = $totals->a_total ?? 0;
+        $b_qty = $totals->b_total ?? 0;
+        $c_qty = $totals->c_total ?? 0;
+
+        return (int) ($a_qty + $b_qty + $c_qty);
+    }
+
+    // Default / regular user: compute for that individual user (resolveUserId)
+    $resolvedUserId = $this->resolveUserId();
+    if (! $resolvedUserId) {
+        return 0;
+    }
+
+    // Only run the per-number sums if that particular claim value is non-null
+    $a_qty = $b_qty = $c_qty = 0;
+    if ($a_claim !== null && $a_claim !== '') {
+        $a_qty = (int) $draw_detail->ticketOptions()
+            ->where('user_id', $resolvedUserId)
+            ->where('number', $a_claim)
+            ->sum('a_qty');
+    }
+    if ($b_claim !== null && $b_claim !== '') {
+        $b_qty = (int) $draw_detail->ticketOptions()
+            ->where('user_id', $resolvedUserId)
+            ->where('number', $b_claim)
+            ->sum('b_qty');
+    }
+    if ($c_claim !== null && $c_claim !== '') {
+        $c_qty = (int) $draw_detail->ticketOptions()
+            ->where('user_id', $resolvedUserId)
+            ->where('number', $c_claim)
+            ->sum('c_qty');
+    }
+
+    return (int) ($a_qty + $b_qty + $c_qty);
+}
+
+   protected function getResult($draw_detail)
+{
+    if (empty($draw_detail)) {
+        return '';
+    }
+
+    $parts = [];
+
+    if ($draw_detail->claim_a !== null && $draw_detail->claim_a !== '') {
+        $parts[] = $draw_detail->claim_a;
+    }
+    if ($draw_detail->claim_b !== null && $draw_detail->claim_b !== '') {
+        $parts[] = $draw_detail->claim_b;
+    }
+    if ($draw_detail->claim_c !== null && $draw_detail->claim_c !== '') {
+        $parts[] = $draw_detail->claim_c;
+    }
+
+    if (empty($parts)) {
+        return ''; // or return '-' if you prefer a placeholder
+    }
+
+    return implode('  ', $parts);
+}
 
     protected function getTq($draw_detail)
     {
@@ -316,21 +403,48 @@ class DrawProfilLossDataTable extends DataTable
     return "<a href=\"{$url}\" class=\"{$class}\" title=\"{$title}\">{$display}</a>";
 })
 
-           ->editColumn('cross_claim', function ($draw_detail) {
+     // ---------------- clickable CROSS CLAIM column ----------------
+->editColumn('cross_claim', function ($draw_detail) {
     if (!($this->isAdminSeg() || ($draw_detail->has_user_data ?? 0))) {
         return '<span class="text-muted">-</span>';
     }
-    $claim = $this->getCrossClaim($draw_detail);
-    return $claim > 0 ? $claim : '<span class="text-muted">-</span>';
+    $claimValue = (float) $this->getCrossClaim($draw_detail);
+    $display = $claimValue > 0 ? e($claimValue) : '&ndash;';
+
+    try {
+        $end = \Carbon\Carbon::parse($draw_detail->end_time)->setTimezone('Asia/Kolkata')->setSecond(0)->addMinute();
+    } catch (\Throwable $e) {
+        $end = \Carbon\Carbon::now('Asia/Kolkata')->setSecond(0)->addMinute();
+    }
+    $drawTimeDisplay = $end->format('h:i a');
+    $drawDetailId = $draw_detail->id ?? '';
+
+    $html = '<a href="#" class="badge badge-link claim-open" data-draw-detail-id="'.e($drawDetailId).'" data-draw-time="'.e($drawTimeDisplay).'" data-type="cross_claim" data-value="'.e($claimValue).'">'.$display.'</a>';
+
+    return new \Illuminate\Support\HtmlString($html);
 })
 
-            ->editColumn('claim', function ($draw_detail) {
 
-                if (!($this->isAdminSeg() || ($draw_detail->has_user_data ?? 0))) {
+         // ---------------- clickable CLAIM column ----------------
+->editColumn('claim', function ($draw_detail) {
+    if (!($this->isAdminSeg() || ($draw_detail->has_user_data ?? 0))) {
         return '<span class="text-muted">-</span>';
     }
-                return $this->getClaim($draw_detail);
-            })
+    $claimValue = (float) $this->getClaim($draw_detail);
+    $display = $claimValue > 0 ? e($claimValue) : '&ndash;';
+
+    try {
+        $end = \Carbon\Carbon::parse($draw_detail->end_time)->setTimezone('Asia/Kolkata')->setSecond(0)->addMinute();
+    } catch (\Throwable $e) {
+        $end = \Carbon\Carbon::now('Asia/Kolkata')->setSecond(0)->addMinute();
+    }
+    $drawTimeDisplay = $end->format('h:i a');
+    $drawDetailId = $draw_detail->id ?? '';
+
+    $html = '<a href="#" class="badge badge-link claim-open" data-draw-detail-id="'.e($drawDetailId).'" data-draw-time="'.e($drawTimeDisplay).'" data-type="claim" data-value="'.e($claimValue).'">'.$display.'</a>';
+
+    return new \Illuminate\Support\HtmlString($html);
+})
             ->editColumn('created_at', fn($row) => Carbon::parse($row->created_at)->format('Y-m-d'))
            ->editColumn('p_and_l', function ($row) {
     if (!($this->isAdminSeg() || ($row->has_user_data ?? 0))) {

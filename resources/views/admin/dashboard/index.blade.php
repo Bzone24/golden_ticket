@@ -5,7 +5,7 @@
 @push('custom-css')
 <style>
     body {
-        background-color: #f5f7fa !important;
+        background-color: #faf7f5 !important;
         font-size: 1.05rem !important;
         font-weight: 500 !important;
         color: #222 !important;
@@ -48,6 +48,32 @@
 
     #totals-row { position: sticky; bottom: 0; box-shadow: 0 -2px 5px rgba(0,0,0,0.1); }
     #totals-row td { background: #2c3e50 !important; color: white; }
+
+    table.dataTable tbody td a.claim-open {
+  display: inline-block;
+  min-width: 34px;
+  padding: 4px 7px;
+  border-radius: 6px;
+  font-weight: 700;
+  text-align: center;
+  text-decoration: none !important;
+  color: #fd2d0d !important;               /* Bootstrap primary */
+  background: rgba(13,110,253,0.06);       /* subtle blue tint */
+  border: 1px solid rgba(13,110,253,0.18);
+}
+/* stronger hover affordance */
+table.dataTable tbody td a.claim-open:hover,
+table.dataTable tbody td a.claim-open:focus {
+  background: rgba(13,110,253,0.12);
+  color: #0b5ed7 !important;
+  box-shadow: 0 0 0 3px rgba(13,110,253,0.06);
+}
+table.dataTable tbody tr.dark-row td a.claim-open,
+.table-dark table.dataTable tbody td a.claim-open {
+  color: #fff !important;
+  background: rgba(255,255,255,0.12);
+  border-color: rgba(255,255,255,0.18);
+}
 </style>
 @endpush
 
@@ -459,6 +485,228 @@ function renderServerTotalsRow(serverTotals, clientTotals) {
         });
     });
     </script>
+
+    <script>
+document.addEventListener('DOMContentLoaded', function () {
+  const claimDetailsBase = "{{ url('admin/draw/draw-details') }}";
+
+  $(document).on('click', 'a.claim-open', function (e) {
+    e.preventDefault();
+    const $el = $(this);
+    const drawDetailId = $el.data('draw-detail-id') || '';
+    const drawTime = $el.data('draw-time') || '';
+    const type = $el.data('type') || 'claim';
+    const value = $el.data('value') || ''; // numeric clicked value
+
+    $('#claimModalHeader').text((type === 'claim' ? 'Claim' : 'Cross Claim') + ' of draw ' + (drawTime || ('#' + drawDetailId)));
+    $('#claimDetailsTable tbody').html('<tr><td colspan="8" class="text-center">Loading...</td></tr>');
+    $('#tot-tq, #tot-claim, #tot-cross-amt, #tot-cross-claim, #tot-pl').text('0');
+    $('#claimDetailsModal').modal('show');
+
+    const url = `${claimDetailsBase}/${encodeURIComponent(drawDetailId)}/claim-details?type=${encodeURIComponent(type)}&value=${encodeURIComponent(value)}`;
+
+    $.ajax({
+      url: url,
+      method: 'GET',
+      dataType: 'json',
+      success: function (res) {
+        if (res?.error) {
+          $('#claimDetailsTable tbody').html('<tr><td colspan="8" class="text-center text-danger">' + escapeHtml(res.error) + '</td></tr>');
+          return;
+        }
+        if (!res || !Array.isArray(res.data) || res.data.length === 0) {
+          $('#claimDetailsTable tbody').html('<tr><td colspan="8" class="text-center">No tickets found</td></tr>');
+          return;
+        }
+        const rows = res.data;
+        let html = '', totTq = 0, totClaim = 0, totCrossAmt = 0, totCrossClaim = 0, totPL = 0;
+     rows.forEach(function (r, idx) {
+  const username = r.username || 'N/A';
+
+  // prefer ticket_number, fallback to ticket_no or id
+  const ticketId = r.ticket_id ?? r.id ?? '';
+  const userId   = r.user_id ?? r.user_id ?? '';
+  const drawId   = r.draw_detail_id ?? r.drawDetailId ?? '';
+  const ticketNo = r.ticket_number ?? r.ticket_no ?? '';
+
+  const tq = Number(r.tq || 0);
+  const claim = Number(r.claim || 0);
+  const crossAmt = Number(r.cross_amt || 0);
+  const crossClaim = Number(r.cross_claim || 0);
+  const pl = Number(r.p_and_l || 0);
+
+  totTq += tq; totClaim += claim; totCrossAmt += crossAmt; totCrossClaim += crossClaim; totPL += pl;
+
+  // build clickable ticket link with data attributes
+  const ticketLink = `<a href="#" class="open-ticket" ` +
+      `data-draw="${escapeHtml(drawId)}" ` +
+      `data-ticket="${escapeHtml(ticketId)}" ` +
+      `data-user="${escapeHtml(userId)}">` +
+      `${escapeHtml(ticketNo)}` +
+    `</a>`;
+
+  html += '<tr>' +
+            '<td>' + (idx + 1) + '</td>' +
+            '<td>' + escapeHtml(username) + '</td>' +
+            '<td>' + ticketLink + '</td>' +
+            '<td>' + formatNumber(tq) + '</td>' +
+            '<td>' + formatNumber(claim) + '</td>' +
+            '<td>' + formatNumber(crossAmt) + '</td>' +
+            '<td>' + formatNumber(crossClaim) + '</td>' +
+            '<td>' + formatNumber(pl) + '</td>' +
+          '</tr>';
+});
+
+
+        $('#claimDetailsTable tbody').html(html);
+        $('#tot-tq').text(formatNumber(totTq));
+        $('#tot-claim').text(formatNumber(totClaim));
+        $('#tot-cross-amt').text(formatNumber(totCrossAmt));
+        $('#tot-cross-claim').text(formatNumber(totCrossClaim));
+        $('#tot-pl').text(formatNumber(totPL));
+      },
+      error: function (xhr) {
+        let msg = 'Error fetching data';
+        try {
+          const data = xhr.responseJSON;
+          if (data && data.error) msg = data.error;
+          else if (xhr.status === 404) msg = 'Not found (404) - check route';
+          else if (xhr.status === 500) msg = 'Server error (500) - check laravel logs';
+        } catch (e) {}
+        $('#claimDetailsTable tbody').html('<tr><td colspan="8" class="text-center text-danger">' + escapeHtml(msg) + '</td></tr>');
+        console.error('Claim details request failed', xhr);
+      }
+    });
+  });
+
+  function formatNumber(n) {
+    if (n === null || n === undefined) return '-';
+    const num = Number(n);
+    if (Number.isNaN(num)) return n;
+    return num.toLocaleString();
+  }
+  function escapeHtml(text) {
+    if (text === null || text === undefined) return '';
+    return String(text).replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;").replace(/"/g, "&quot;").replace(/'/g, "&#039;");
+  }
+});
+</script>
+
+<script>
+(function () {
+  if (window.__claim_modal_reliable_init) return;
+  window.__claim_modal_reliable_init = true;
+
+  let lastTrigger = null;
+
+  function dbg(...args){ if (console && console.log) console.log('[claim-modal]', ...args); }
+
+  // Delegated click handler (single binding)
+  $(document).on('click', '.open-ticket', function (e) {
+    e.preventDefault();
+    lastTrigger = this;
+    const $el = $(this);
+
+    const drawId   = $el.data('draw');
+    const ticketId = $el.data('ticket');
+    const userId   = $el.data('user');
+
+    dbg('open-ticket clicked', { drawId, ticketId, userId });
+
+    // spinner
+    $('#claimDetailsModal .modal-body').html('<div class="text-center p-4"><div class="spinner-border" role="status"></div></div>');
+
+    // Always create a new Modal instance to avoid stale instances
+    const modalEl = document.getElementById('claimDetailsModal');
+    try {
+      let modal;
+      if (typeof bootstrap !== 'undefined' && bootstrap.Modal) {
+        modal = new bootstrap.Modal(modalEl, { backdrop: true, keyboard: true });
+        modal.show();
+      } else if (typeof $ !== 'undefined' && $(modalEl).modal) {
+        $(modalEl).modal('show');
+      } else {
+        modalEl.style.display = 'block';
+        modalEl.classList.add('show');
+        modalEl.setAttribute('aria-hidden', 'false');
+        document.body.classList.add('modal-open');
+      }
+    } catch (err) {
+      console.warn('modal show error', err);
+    }
+
+    const url = `/admin/draw/ticket-modal/${encodeURIComponent(drawId)}/${encodeURIComponent(ticketId)}/${encodeURIComponent(userId)}`;
+    dbg('fetch', url);
+    fetch(url, { credentials: 'same-origin' })
+      .then(r => { if (!r.ok) throw new Error('HTTP ' + r.status); return r.text(); })
+      .then(html => {
+        $('#claimDetailsModal .modal-body').html(html);
+        dbg('modal content loaded');
+      })
+      .catch(err => {
+        console.error('Ticket modal load failed', err);
+        $('#claimDetailsModal .modal-body').html('<div class="alert alert-danger">Failed to load ticket details</div>');
+      });
+  });
+
+  // Prevent focus issues before hide
+  const modalEl = document.getElementById('claimDetailsModal');
+  if (!modalEl) return;
+
+  modalEl.addEventListener('hide.bs.modal', function () {
+    try {
+      const active = document.activeElement;
+      if (active && modalEl.contains(active)) active.blur();
+    } catch (e) {}
+  });
+
+  // Cleanup after hidden: only remove backdrops & restore body classes/padding; do not change modal display
+  modalEl.addEventListener('hidden.bs.modal', function () {
+    setTimeout(function () {
+      try {
+        // remove any leftover backdrops
+        document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
+        // clear body state
+        document.body.classList.remove('modal-open');
+        document.body.style.paddingRight = '';
+        document.body.style.overflow = '';
+        // restore focus
+        if (lastTrigger && typeof lastTrigger.focus === 'function') {
+          lastTrigger.focus({ preventScroll: false });
+        } else {
+          try { document.body.focus(); } catch(e){}
+        }
+      } catch (err) {
+        console.warn('Modal cleanup error', err);
+      } finally {
+        lastTrigger = null;
+      }
+      dbg('modal hidden -> cleaned up');
+    }, 60);
+  });
+
+  // Also listen jQuery hidden (BS4) for safety
+  $(modalEl).on('hidden.bs.modal', function () {
+    setTimeout(function () {
+      try {
+        document.querySelectorAll('.modal-backdrop').forEach(b => b.remove());
+        document.body.classList.remove('modal-open');
+        document.body.style.paddingRight = '';
+        document.body.style.overflow = '';
+      } catch (e) {}
+      lastTrigger = null;
+      dbg('jQuery hidden cleanup executed');
+    }, 60);
+  });
+
+  dbg('claim modal reliable init done');
+})();
+</script>
+
+
+
+
+
 @endpush
 
 <div class="container-fluid" style="font-size: larger; color: #222;">
@@ -488,4 +736,52 @@ function renderServerTotalsRow(serverTotals, clientTotals) {
 
     @livewire('claim-add')
 </div>
+<!-- Claim Details Modal -->
+<div id="claimDetailsModal" class="modal fade" tabindex="-1" role="dialog" aria-labelledby="claimDetailsModalLabel" aria-hidden="true">
+  <div class="modal-dialog modal-lg" role="document" style="max-width: 1000px;">
+    <div class="modal-content">
+      <div class="modal-header">
+        <h5 id="claimDetailsModalLabel" class="modal-title">Claim Details</h5>
+        <button type="button" class="btn-close" data-bs-dismiss="modal" aria-label="Close"></button>
+      </div>
+      <div class="modal-body">
+        <div class="mb-2"><strong id="claimModalHeader">Claim Details</strong></div>
+
+        <div class="table-responsive">
+          <table id="claimDetailsTable" class="table table-striped table-sm">
+            <thead>
+              <tr>
+                <th>#</th>
+                <th>Username</th>
+                <th>Ticket No</th>
+                <th>TQ</th>
+                <th>Claim</th>
+                <th>Cross Amt</th>
+                <th>Cross Claim</th>
+                <th>P & L</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr><td colspan="8" class="text-center">No records</td></tr>
+            </tbody>
+            <tfoot>
+              <tr>
+                <th colspan="3">Totals</th>
+                <th id="tot-tq">0</th>
+                <th id="tot-claim">0</th>
+                <th id="tot-cross-amt">0</th>
+                <th id="tot-cross-claim">0</th>
+                <th id="tot-pl">0</th>
+              </tr>
+            </tfoot>
+          </table>
+        </div>
+      </div>
+      <div class="modal-footer">
+        <button type="button" class="btn btn-light" data-bs-dismiss="modal">Close</button>
+      </div>
+    </div>
+  </div>
+</div>
+
 @endsection

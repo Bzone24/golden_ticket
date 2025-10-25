@@ -25,7 +25,7 @@
                         <h4 class="text-white me-auto">Details of Ticket Number: {{ $ticket->ticket_number }}</h4>
                     </div>
                     <div class="card-body">
-                        {{ $dataTable->table(['id'=>'shopkeepers-table']) }}
+                        {{ $dataTable->table(['id' => 'shopkeepers-table']) }}
                     </div>
                 </div>
             </div>
@@ -39,14 +39,16 @@
                     <div class="card-body">
                         {{-- {!! $crossTable->table(['id'=>'CrossTicketDetailsDataTable']) !!} --}}
                         <table id="CrossTicketDetailsDataTable" class="table table-bordered">
-                            <thead>
-                                <tr>
-                                    <th>Option</th>
-                                    <th>Number</th>
-                                    <th>Combination</th>
-                                    <th>Amount</th>
-                                </tr>
-                            </thead>
+                           <thead>
+  <tr>
+    <th>Option</th>
+    <th>Type</th>
+    <th>Number</th>
+    <th>Combination</th>
+    <th>Amount</th>
+  </tr>
+</thead>
+
                         </table>
                     </div>
                 </div>
@@ -57,29 +59,39 @@
         @include('admin.includes.datatable-js-plugins')
         {{ $dataTable->scripts() }}
         <script>
-            $(function () {
-               
-                // Orders DataTable with param
-                $('#CrossTicketDetailsDataTable').DataTable({
-                    processing: true,
-                    serverSide: true,
-                    ajax: {
-                        url: '{{ route('admin.draw.cross.ticket.details.list', ['drawDetail' => $drawDetail->id,'ticket'=>$ticket->id,'user'=>$user->id]) }}',
-                        data: function (d) {
-                            // extra params if required
-                            d.status = 'paid';
-                        }
-                    },
-                    columns: [
-                        { data: 'option', name: 'Option' },
-                        { data: 'number', name: 'Number' },
-                        { data: 'combination', name: 'Combination' },
-                        { data: 'amt', name: 'Amount' }
-                    ]
-                });
-            });
-        </script>
-        
+$(function () {
+    console.log('Cross table init running');
+
+    const table = $('#CrossTicketDetailsDataTable').DataTable({
+        processing: true,
+        serverSide: true,
+        ajax: {
+            url: '{{ route('admin.draw.cross.ticket.details.list', ['drawDetail' => $drawDetail->id,'ticket'=>$ticket->id,'user'=>$user->id]) }}',
+            // add error handler to catch server errors
+            error: function (xhr, error, thrown) {
+                console.error('Cross table AJAX error', xhr.status, thrown, xhr.responseText);
+            }
+        },
+        columns: [
+    { data: 'option', name: 'Option' },
+    { data: 'type', name: 'Type' },
+    { data: 'numbers', name: 'Numbers' },
+    { data: 'combination', name: 'Combination' },
+    { data: 'amount', name: 'Amount' }
+  ],
+  order: [[1, 'asc']]
+});
+       
+
+
+    // manual test: log and force reload after 1s (useful to see request)
+    setTimeout(function() {
+        console.log('Cross table ajax.reload triggered');
+        table.ajax.reload(null, false);
+    }, 1000);
+});
+</script>
+
     @endpush
 
 @endsection

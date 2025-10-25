@@ -15,7 +15,7 @@
                <label class="btn btn-success btn-sm fw-bold px-2 py-1" for="cross_abc">ABC</label>
                 <input type="text" id="cross_abc"  name="cross_abc_input" inputmode="numeric" maxlength="3"
                 
-                wire:model.defer="cross_abc_input"
+                wire:model.debounce.500ms="cross_abc_input"
                     x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-abc-qty'))"
                     class="form-control bg-light text-dark border-warning cross-input cross_number"
                     placeholder="Enter ABC">
@@ -26,7 +26,7 @@
 
             <div class="col-4">
                 <label class="btn btn-danger btn-sm fw-bold px-2 py-1" for="cross_qty">Amt</label>
-                <input type="text" id="cross_qty" wire:model.defer="cross_abc_amt"
+                <input type="text" id="cross_qty" wire:model.debounce.500ms="cross_abc_amt"
                     x-on:keydown.enter.prevent="window.dispatchEvent(new CustomEvent('focus-cross-abc-combination'))"
                     class="form-control bg-light text-dark border-warning cross-input mynumber" placeholder="Enter Amt">
                 @error('cross_abc_amt')
@@ -38,8 +38,9 @@
                 <label class="btn btn-dark btn-sm fw-bold px-2 py-1" for="cross_combination">Comb</label>
                 <!-- final Enter still calls Livewire save method (unchanged) -->
                 <input type="text" id="cross_combination" wire:model.defer="cross_combination"
-                    wire:keydown.enter.prevent="enterKeyPressOnCrossAbc('focus-cross-abc','cross_combination')"
-                    class="form-control bg-light text-dark border-warning cross-input" placeholder="Enter Combination">
+    wire:keydown.enter.prevent="enterKeyPressOnCrossAbc('focus-cross-abc','cross_combination')"
+    class="form-control bg-light text-dark border-warning cross-input" placeholder="Comb 3,6,27">
+
                 @error('cross_combination')
                     <span class="text-danger small">{{ $message }}</span>
                 @enderror
@@ -172,243 +173,372 @@
 
 
 @script
-    <script>
-        let _activeIntervals = [];
+<script>
+    let _activeIntervals = [];
 
-        function _setManagedInterval(fn, ms) {
-            let id = setInterval(fn, ms);
+    function _setManagedInterval(fn, ms) {
+        let id = setInterval(fn, ms);
+        _activeIntervals.push({
+            id,
+            fn,
+            ms
+        });
+        return id;
+    }
+
+    function _clearManagedIntervals() {
+        _activeIntervals.forEach(obj => clearInterval(obj.id));
+        _activeIntervals = [];
+    }
+
+    function _restartManagedIntervals() {
+        _activeIntervals.forEach(obj => clearInterval(obj.id));
+        const existing = [..._activeIntervals];
+        _activeIntervals = [];
+        existing.forEach(obj => {
+            let id = setInterval(obj.fn, obj.ms);
             _activeIntervals.push({
                 id,
-                fn,
-                ms
+                fn: obj.fn,
+                ms: obj.ms
             });
-            return id;
+        });
+    }
+    document.addEventListener('visibilitychange', function() {
+        if (document.hidden) {
+            _clearManagedIntervals();
+        } else {
+            _restartManagedIntervals();
         }
+    });
 
-        function _clearManagedIntervals() {
-            _activeIntervals.forEach(obj => clearInterval(obj.id));
-            _activeIntervals = [];
-        }
 
-        function _restartManagedIntervals() {
-            _activeIntervals.forEach(obj => clearInterval(obj.id));
-            const existing = [..._activeIntervals];
-            _activeIntervals = [];
-            existing.forEach(obj => {
-                let id = setInterval(obj.fn, obj.ms);
-                _activeIntervals.push({
-                    id,
-                    fn: obj.fn,
-                    ms: obj.ms
-                });
-            });
-        }
-        document.addEventListener('visibilitychange', function() {
-            if (document.hidden) {
-                _clearManagedIntervals();
+    (function() {
+
+        // ---- Robust Global notify listener (to show server side messages) ----
+        // Works with many payload shapes. Compatible with your Livewire3 `dispatch('notify', {...})`.
+        window.addEventListener('notify', function(e) {
+            // Helpful debug: uncomment to inspect the raw event in console
+            // console.log('RAW notify event:', e);
+
+            const d = (e && e.detail) ? e.detail : {};
+            let msg = '';
+
+            // Try common direct fields
+            if (typeof d.message === 'string' && d.message.trim() !== '') msg = d.message.trim();
+            else if (typeof d.msg === 'string' && d.msg.trim() !== '') msg = d.msg.trim();
+            else if (typeof d.data === 'string' && d.data.trim() !== '') msg = d.data.trim();
+
+            // Try nested common shapes
+            else if (d.payload && typeof d.payload.message === 'string' && d.payload.message.trim() !== '') msg = d.payload.message.trim();
+            else if (d.data && typeof d.data.message === 'string' && d.data.message.trim() !== '') msg = d.data.message.trim();
+
+            // If d is array-like
+            else if (Array.isArray(d) && d.length) {
+                if (typeof d[0] === 'string' && d[0].trim() !== '') msg = d[0].trim();
+                else if (d[0] && typeof d[0].message === 'string') msg = d[0].message;
+            }
+
+            // Try to flatten and pick first usable string value
+            if (!msg) {
+                try {
+                    const vals = Array.isArray(d) ? d : Object.values(d || {});
+                    for (const v of vals) {
+                        if (!v) continue;
+                        if (typeof v === 'string' && v.trim() !== '') { msg = v.trim(); break; }
+                        if (Array.isArray(v) && v.length && typeof v[0] === 'string' && v[0].trim() !== '') { msg = v[0].trim(); break; }
+                        if (v && typeof v === 'object') {
+                            // try shallow inner values
+                            const inner = Object.values(v).find(x => typeof x === 'string' && x.trim() !== '');
+                            if (inner) { msg = inner.trim(); break; }
+                        }
+                    }
+                } catch (_) { /* ignore */ }
+            }
+
+            // Last fallback
+            if (!msg) msg = (d && d.defaultMessage) ? d.defaultMessage : '';
+
+            // If still empty, log the raw detail so we can adapt if needed
+            if (!msg) {
+                try { console.warn('notify event received with no extracted message. event.detail:', d); } catch (_) {}
+            }
+
+            const type = (d.type || 'error').toLowerCase();
+
+            // Display via the preferred UI available: toastr -> SweetAlert2 -> Bootstrap toast -> alert
+            try {
+                if (typeof toastr !== 'undefined') {
+                    if (type === 'error') toastr.error(msg || 'Error');
+                    else toastr.success(msg || 'Success');
+                    return;
+                }
+            } catch (err) { /* ignore */ }
+
+            try {
+                if (typeof Swal !== 'undefined' && typeof Swal.fire === 'function') {
+                    if (type === 'error') {
+                        // show server message prominently (as title) so it replaces generic "Error"
+                        Swal.fire({
+                            icon: 'error',
+                            title: msg || 'Error',
+                            confirmButtonText: 'OK',
+                        });
+                    } else {
+                        Swal.fire({
+                            icon: 'success',
+                            title: msg || 'Success',
+                            timer: 1400,
+                            showConfirmButton: false,
+                        });
+                    }
+                    return;
+                }
+            } catch (err) { /* ignore */ }
+
+            try {
+                if (typeof bootstrap !== 'undefined') {
+                    const containerId = 'livewire-notify-container';
+                    let container = document.getElementById(containerId);
+                    if (!container) {
+                        container = document.createElement('div');
+                        container.id = containerId;
+                        container.style.position = 'fixed';
+                        container.style.top = '1rem';
+                        container.style.right = '1rem';
+                        container.style.zIndex = 10800;
+                        document.body.appendChild(container);
+                    }
+
+                    const toastId = 'livewire-toast-' + Date.now();
+                    const toastEl = document.createElement('div');
+                    toastEl.className = 'toast align-items-center text-white bg-' + (type === 'error' ? 'danger' : 'success') + ' border-0';
+                    toastEl.id = toastId;
+                    toastEl.role = 'alert';
+                    toastEl.ariaLive = 'assertive';
+                    toastEl.ariaAtomic = 'true';
+                    toastEl.style.minWidth = '200px';
+
+                    toastEl.innerHTML = `
+                        <div class="d-flex">
+                            <div class="toast-body">${(msg || (type === 'error' ? 'Error' : 'Done'))}</div>
+                            <button type="button" class="btn-close btn-close-white me-2 m-auto" data-bs-dismiss="toast" aria-label="Close"></button>
+                        </div>
+                    `;
+
+                    container.appendChild(toastEl);
+                    const bsToast = new bootstrap.Toast(toastEl, { delay: 3500 });
+                    bsToast.show();
+
+                    toastEl.addEventListener('hidden.bs.toast', function () {
+                        try { toastEl.remove(); } catch(_) {}
+                    });
+                    return;
+                }
+            } catch (err) { /* ignore */ }
+
+            alert(msg || (type === 'error' ? 'An error occurred' : 'Done'));
+        });
+
+        // ---- Input sanitizers (kept using jQuery for compatibility) ----
+        // Accept only digits, allow duplicates
+        $(document).on('input', '.cross_number', function() {
+            let $el = $(this);
+            let v = $el.val().replace(/[^0-9]/g, '');
+            const max = parseInt($el.attr('maxlength')) || 5;
+            if (v.length > max) v = v.substring(0, max);
+
+            // Enforce per-field rules:
+            // - #cross_abc : max 3, UNIQUE digits (preserve order)
+            // - #cross_a, #cross_b, #cross_c : max 5, UNIQUE digits (preserve order)
+            // - #cross_ab, #cross_ac, #cross_bc : max 2, DUPLICATES allowed
+            if ($el.is('#cross_abc')) {
+                v = Array.from(new Set(v.split(''))).join('').substring(0, max);
+            } else if ($el.is('#cross_a') || $el.is('#cross_b') || $el.is('#cross_c')) {
+                v = Array.from(new Set(v.split(''))).join('').substring(0, max);
             } else {
-                _restartManagedIntervals();
+                // pairs: keep duplicates as-is
+            }
+
+            if (v !== $el.val()) {
+                $el.val(v);
+                try { $el[0].dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
+                try { $el[0].dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
             }
         });
 
 
-        (function() {
-            // ---- Input sanitizers (kept using jQuery for compatibility) ----
-            // Accept only digits, allow duplicates
-            $(document).on('input', '.cross_number', function() {
-                let $el = $(this);
-                let v = $el.val().replace(/[^0-9]/g, '');
-                const max = parseInt($el.attr('maxlength')) || 5;
-                if (v.length > max) v = v.substring(0, max);
+        $(document).on('input', '.mynumber', function() {
+            const v = $(this).val().replace(/[^0-9]/g, '');
+            if (v !== $(this).val()) $(this).val(v);
+        });
 
-                // Enforce per-field rules:
-                // - #cross_abc : max 3, UNIQUE digits (preserve order)
-                // - #cross_a, #cross_b, #cross_c : max 5, UNIQUE digits (preserve order)
-                // - #cross_ab, #cross_ac, #cross_bc : max 2, DUPLICATES allowed
-                if ($el.is('#cross_abc')) {
-                    v = Array.from(new Set(v.split(''))).join('').substring(0, max);
-                } else if ($el.is('#cross_a') || $el.is('#cross_b') || $el.is('#cross_c')) {
-                    v = Array.from(new Set(v.split(''))).join('').substring(0, max);
-                } else {
-                    // pairs: keep duplicates as-is
-                }
+        // ---- Focus mapping for dispatched CustomEvents ----
+        const focusMap = {
+            'focus-cross-abc': 'cross_abc',
+            'focus-cross-abc-qty': 'cross_qty',
+            'focus-cross-abc-combination': 'cross_combination',
+            'focus-cross-a': 'cross_a',
+            'focus-cross-b': 'cross_b',
+            'focus-cross-c': 'cross_c',
+            'focus-cross-single-amt': 'cross_single_amount',
+            'focus-cross-ab': 'cross_ab',
+            'focus-cross-ab-amt': 'cross_ab_amt',
+            'focus-cross-bc': 'cross_bc',
+            'focus-cross-bc-amt': 'cross_bc_amt',
+            'focus-cross-ac': 'cross_ac',
+            'focus-cross-ac-amt': 'cross_ac_amt'
+        };
 
-                if (v !== $el.val()) {
-                    $el.val(v);
-                    try { $el[0].dispatchEvent(new Event('input', { bubbles: true })); } catch (e) {}
-try { $el[0].dispatchEvent(new Event('change', { bubbles: true })); } catch (e) {}
-                }
+        Object.keys(focusMap).forEach(evtName => {
+            window.addEventListener(evtName, function() {
+                const el = document.getElementById(focusMap[evtName]);
+                if (el) setTimeout(() => el.focus(), 0);
             });
+        });
 
+        // ---- Keyboard shortcuts (global) ----
+        document.addEventListener('keydown', function(e) {
+            const tag = (document.activeElement && document.activeElement.tagName) || '';
+            const editable = document.activeElement && (document.activeElement.isContentEditable || [
+                'INPUT', 'TEXTAREA', 'SELECT'
+            ].includes(tag));
 
-            $(document).on('input', '.mynumber', function() {
-                const v = $(this).val().replace(/[^0-9]/g, '');
-                if (v !== $(this).val()) $(this).val(v);
-            });
+            if (editable && !(e.ctrlKey || e.metaKey)) return;
 
-            // ---- Focus mapping for dispatched CustomEvents ----
-            const focusMap = {
-                'focus-cross-abc': 'cross_abc',
-                'focus-cross-abc-qty': 'cross_qty',
-                'focus-cross-abc-combination': 'cross_combination',
-                'focus-cross-a': 'cross_a',
-                'focus-cross-b': 'cross_b',
-                'focus-cross-c': 'cross_c',
-                'focus-cross-single-amt': 'cross_single_amount',
-                'focus-cross-ab': 'cross_ab',
-                'focus-cross-ab-amt': 'cross_ab_amt',
-                'focus-cross-bc': 'cross_bc',
-                'focus-cross-bc-amt': 'cross_bc_amt',
-                'focus-cross-ac': 'cross_ac',
-                'focus-cross-ac-amt': 'cross_ac_amt'
-            };
+            // Ctrl+Shift+C → focus Cross ABC
+            if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') {
+                e.preventDefault();
+                document.getElementById('cross_abc')?.focus();
+                return;
+            }
 
-            Object.keys(focusMap).forEach(evtName => {
-                window.addEventListener(evtName, function() {
-                    const el = document.getElementById(focusMap[evtName]);
-                    if (el) setTimeout(() => el.focus(), 0);
-                });
-            });
-
-            // ---- Keyboard shortcuts (global) ----
-            document.addEventListener('keydown', function(e) {
-                const tag = (document.activeElement && document.activeElement.tagName) || '';
-                const editable = document.activeElement && (document.activeElement.isContentEditable || [
-                    'INPUT', 'TEXTAREA', 'SELECT'
-                ].includes(tag));
-
-                if (editable && !(e.ctrlKey || e.metaKey)) return;
-
-                // Ctrl+Shift+C → focus Cross ABC
-                if (e.ctrlKey && e.shiftKey && e.key.toLowerCase() === 'c') {
-                    e.preventDefault();
-                    document.getElementById('cross_abc')?.focus();
-                    return;
-                }
-
-                // Ctrl+1 / Ctrl+2 / Ctrl+3 → focus fields
-                if (e.ctrlKey && ['1', '2', '3'].includes(e.key)) {
-                    e.preventDefault(); // stop browser tab switching
-                    const map = {
-                        '1': 'cross_abc', // full ABC
-                        '2': 'cross_a', // single A
-                        '3': 'cross_ab' // pair AB
-                    };
-                    document.getElementById(map[e.key])?.focus();
-                    return;
-                }
-            }, {
-                passive: false
-            }); // <-- important change
+            // Ctrl+1 / Ctrl+2 / Ctrl+3 → focus fields
+            if (e.ctrlKey && ['1', '2', '3'].includes(e.key)) {
+                e.preventDefault(); // stop browser tab switching
+                const map = {
+                    '1': 'cross_abc', // full ABC
+                    '2': 'cross_a', // single A
+                    '3': 'cross_ab' // pair AB
+                };
+                document.getElementById(map[e.key])?.focus();
+                return;
+            }
+        }, {
+            passive: false
+        }); // <-- important change
 
 
 
-            // ---- Arrow-key navigation for cross-inputs (non-destructive) ----
-            // directional mapping: for each input id specify neighbor ids for left/right/up/down
-            const arrowMap = {
-                cross_abc: {
-                    right: 'cross_qty',
-                    down: 'cross_a',
-                    left: 'abc'
-                },
-                cross_qty: {
-                    left: 'cross_abc',
-                    right: 'cross_combination',
-                    down: 'cross_a'
-                },
-                cross_combination: {
-                    left: 'cross_qty',
-                    down: 'cross_a'
-                },
+        // ---- Arrow-key navigation for cross-inputs (non-destructive) ----
+        // directional mapping: for each input id specify neighbor ids for left/right/up/down
+        const arrowMap = {
+            cross_abc: {
+                right: 'cross_qty',
+                down: 'cross_a',
+                left: 'abc'
+            },
+            cross_qty: {
+                left: 'cross_abc',
+                right: 'cross_combination',
+                down: 'cross_a'
+            },
+            cross_combination: {
+                left: 'cross_qty',
+                down: 'cross_a'
+            },
 
-                cross_a: {
-                    up: 'cross_abc',
-                    right: 'cross_b',
-                    down: 'cross_ab',
-                    left: 'input_a'
-                },
-                cross_b: {
-                    left: 'cross_a',
-                    right: 'cross_c',
-                    up: 'cross_qty',
-                    down: 'cross_bc'
-                },
-                cross_c: {
-                    left: 'cross_b',
-                    right: 'cross_single_amount',
-                    up: 'cross_combination',
-                    down: 'cross_ac'
-                },
-                cross_single_amount: {
-                    left: 'cross_c',
-                    up: 'cross_qty',
-                    down: 'cross_ab'
-                },
+            cross_a: {
+                up: 'cross_abc',
+                right: 'cross_b',
+                down: 'cross_ab',
+                left: 'input_a'
+            },
+            cross_b: {
+                left: 'cross_a',
+                right: 'cross_c',
+                up: 'cross_qty',
+                down: 'cross_bc'
+            },
+            cross_c: {
+                left: 'cross_b',
+                right: 'cross_single_amount',
+                up: 'cross_combination',
+                down: 'cross_ac'
+            },
+            cross_single_amount: {
+                left: 'cross_c',
+                up: 'cross_qty',
+                down: 'cross_ab'
+            },
 
-                cross_ab: {
-                    up: 'cross_combination',
-                    right: 'cross_bc',
-                    down: 'cross_ab_amt',
-                    left: 'input_a'
-                },
-                cross_bc: {
-                    left: 'cross_ab',
-                    right: 'cross_ac',
-                    down: 'cross_bc_amt'
-                },
-                cross_ac: {
-                    left: 'cross_bc',
-                    up: 'cross_c',
-                    down: 'cross_ac_amt'
-                },
+            cross_ab: {
+                up: 'cross_combination',
+                right: 'cross_bc',
+                down: 'cross_ab_amt',
+                left: 'input_a'
+            },
+            cross_bc: {
+                left: 'cross_ab',
+                right: 'cross_ac',
+                down: 'cross_bc_amt'
+            },
+            cross_ac: {
+                left: 'cross_bc',
+                up: 'cross_c',
+                down: 'cross_ac_amt'
+            },
 
-                cross_ab_amt: {
-                    up: 'cross_ab',
-                    right: 'cross_bc_amt'
-                },
-                cross_bc_amt: {
-                    left: 'cross_ab_amt',
-                    right: 'cross_ac_amt',
-                    up: 'cross_bc'
-                },
-                cross_ac_amt: {
-                    left: 'cross_bc_amt',
-                    up: 'cross_ac'
-                }
+            cross_ab_amt: {
+                up: 'cross_ab',
+                right: 'cross_bc_amt'
+            },
+            cross_bc_amt: {
+                left: 'cross_ab_amt',
+                right: 'cross_ac_amt',
+                up: 'cross_bc'
+            },
+            cross_ac_amt: {
+                left: 'cross_bc_amt',
+                up: 'cross_ac'
+            }
+        };
 
-         
-            };
 
-            
-            document.addEventListener('keydown', function(e) {
-                // only act on plain arrow keys
-                if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
+        document.addEventListener('keydown', function(e) {
+            // only act on plain arrow keys
+            if (!['ArrowLeft', 'ArrowRight', 'ArrowUp', 'ArrowDown'].includes(e.key)) return;
 
-                const active = document.activeElement;
-                if (!active) return;
-                // we only take over when focused element has class 'cross-input'
-                if (!active.classList || !active.classList.contains('cross-input')) return;
+            const active = document.activeElement;
+            if (!active) return;
+            // we only take over when focused element has class 'cross-input'
+            if (!active.classList || !active.classList.contains('cross-input')) return;
 
-                const id = active.id;
-                if (!id) return;
-                const dir = e.key.replace('Arrow', '').toLowerCase(); // 'left'|'right'|'up'|'down'
-                const neighborId = arrowMap[id] && arrowMap[id][dir];
-                if (!neighborId) return; // nothing mapped
+            const id = active.id;
+            if (!id) return;
+            const dir = e.key.replace('Arrow', '').toLowerCase(); // 'left'|'right'|'up'|'down'
+            const neighborId = arrowMap[id] && arrowMap[id][dir];
+            if (!neighborId) return; // nothing mapped
 
-                const target = document.getElementById(neighborId);
-                if (target) {
-                    e.preventDefault(); // stop caret movement / scroll
-                    target.focus();
-                    // optionally select text for quick replace (uncomment if desired)
-                    // if (typeof target.select === 'function') target.select();
-                }
-            }, {
-                passive: false
-            });
+            const target = document.getElementById(neighborId);
+            if (target) {
+                e.preventDefault(); // stop caret movement / scroll
+                target.focus();
+                // optionally select text for quick replace (uncomment if desired)
+                // if (typeof target.select === 'function') target.select();
+            }
+        }, {
+            passive: false
+        });
 
-        })();
-    </script>
+    })();
+
+    
+</script>
 @endscript
+
+
+
 
 
 <style>

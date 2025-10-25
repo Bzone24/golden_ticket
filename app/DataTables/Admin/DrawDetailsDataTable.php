@@ -31,15 +31,34 @@ class DrawDetailsDataTable extends DataTable
     }
 
     protected function getClaim($user_draw)
-    {
-        $draw_details = $user_draw->drawDetail;
-        $ticket_option = $user_draw->ticketOptions;
-        $total_a_claim = $ticket_option->where('number', $draw_details->claim_a)->sum('a_qty');
-        $total_b_claim = $ticket_option->where('number', $draw_details->claim_b)->sum('b_qty');
-        $total_c_claim = $ticket_option->where('number', $draw_details->claim_c)->sum('c_qty');
+{
+    $draw_details = $user_draw->drawDetail;
 
-        return $total_a_claim + $total_b_claim + $total_c_claim;
+    // If no draw detail attached, nothing to compute
+    if (empty($draw_details) || !isset($draw_details->id)) {
+        return 0;
     }
+
+    // Read claim fields. Only NULL means "not set". 0 is a valid number and must be matched.
+    $aClaim = $draw_details->claim_a;
+    $bClaim = $draw_details->claim_b;
+    $cClaim = $draw_details->claim_c;
+
+    // If none of the claims are set, return 0 immediately (prevents accidental sums)
+    if ($aClaim === null && $bClaim === null && $cClaim === null) {
+        return 0;
+    }
+
+    // Use the ticketOptions collection (eager loaded usually); perform per-number sums only if claim is non-null.
+    $ticket_option = $user_draw->ticketOptions;
+
+    $totalA = ($aClaim !== null && $aClaim !== '') ? (int) $ticket_option->where('number', $aClaim)->sum('a_qty') : 0;
+    $totalB = ($bClaim !== null && $bClaim !== '') ? (int) $ticket_option->where('number', $bClaim)->sum('b_qty') : 0;
+    $totalC = ($cClaim !== null && $cClaim !== '') ? (int) $ticket_option->where('number', $cClaim)->sum('c_qty') : 0;
+
+    return $totalA + $totalB + $totalC;
+}
+
 
     protected function getCrossAmt($user_draw)
     {
@@ -101,30 +120,37 @@ class DrawDetailsDataTable extends DataTable
             ->addColumn('claim', function ($user_draw) {
                 return $this->getClaim($user_draw);
             })
-            ->addColumn('c_amt', function ($user_draw) {
-                $draw_details = $user_draw->drawDetail;
-                $ticket_option = $user_draw->ticketOptions;
-                $total_a_claim = $ticket_option->where('number', $draw_details->claim_a)->sum('a_qty');
-                $total_b_claim = $ticket_option->where('number', $draw_details->claim_b)->sum('b_qty');
-                $total_c_claim = $ticket_option->where('number', $draw_details->claim_c)->sum('c_qty');
+           ->addColumn('c_amt', function ($user_draw) {
+    // c_amt is simply claim units converted to money (unitToMoney = 100)
+    $claimUnits = $this->getClaim($user_draw);
 
-                return ($total_a_claim + $total_b_claim + $total_c_claim) * 100;
-            })
-            ->addColumn('p_and_l', function ($user_draw) {
-                $tq = $this->getTq($user_draw);
-                $claim = $this->getClaim($user_draw);
-                $crossClaim = $this->getCrossClaim($user_draw);
-                $crossclaimAmt = $this->getCrossAmt($user_draw);
-                $p_and_l = $this->calculateProfitAndLoss($tq * 11, $crossclaimAmt, $claim, $crossClaim);
-                $bgClass = $p_and_l < 0 ? 'bg-danger text-white' : 'bg-success text-white';
-                if ($p_and_l == 0) {
-                    $bgClass = 'text-dark';
-                }
+    return $claimUnits * 100;
+})
+           ->addColumn('p_and_l', function ($user_draw) {
+    $draw_details = $user_draw->drawDetail;
 
-                return <<<HTML
-            <div class="{$bgClass} text-center">{$p_and_l}</div>
-            HTML;
-            })
+    // if draw details missing or no claim numbers declared, show neutral placeholder
+    if (empty($draw_details) || ($draw_details->claim_a === null && $draw_details->claim_b === null && $draw_details->claim_c === null)) {
+        return '<div class="text-muted text-center">--</div>';
+    }
+
+    $tq = $this->getTq($user_draw);
+    $claim = $this->getClaim($user_draw);
+    $crossClaim = $this->getCrossClaim($user_draw);
+    $crossclaimAmt = $this->getCrossAmt($user_draw);
+
+    // p&l calculation expects money or units according to your CalculatePL trait — keep same call
+    $p_and_l = $this->calculateProfitAndLoss($tq * 11, $crossclaimAmt, $claim, $crossClaim);
+
+    $bgClass = $p_and_l < 0 ? 'bg-danger text-white' : 'bg-success text-white';
+    if ($p_and_l == 0) {
+        $bgClass = 'text-dark';
+    }
+
+    return <<<HTML
+    <div class="{$bgClass} text-center">{$p_and_l}</div>
+    HTML;
+})
             ->filterColumn('shop_keeper', function ($query, $keyword) {
                 $query->whereHas('user', function ($q) use ($keyword) {
                     $q->forName($keyword);

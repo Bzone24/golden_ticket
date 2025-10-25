@@ -42,9 +42,12 @@ Route::middleware(['auth'])->group(function () {
         Route::get('add-draw', 'addDraw')->name('admin.add.draw');
         Route::get('draw-details-list/{drawDetail}/{user_id?}', 'drawDetails')->name('admin.draw.detail.list');
         Route::get('draw-details-of-shopkeeper/{drawDetail}/{user?}', 'shopKeeperDrawDetails')->name('admin.draw.details.shopkeeper');
+        Route::get('draw-details/{drawDetail}/claim-details', 'claimDetails')->name('admin.draw.detail.claims'); 
         Route::get('draw-number-details-list', 'numberList')->name('admin.draw.number.details.list');
-        Route::get('draw-tikcet-details-list/{drawDetail}/{ticket}/{user}', 'ticketDetailsList')->name('admin.draw.ticke.details.list');
+        Route::get('draw-ticket-details-list/{drawDetail}/{ticket}/{user}', 'ticketDetailsList')->name('admin.draw.ticke.details.list');
         Route::get('cross-table/{drawDetail}/{ticket}/{user}', 'getCrossDataTable')->name('admin.draw.cross.ticket.details.list');
+        Route::get('ticket-modal/{drawDetail}/{ticket}/{user}', 'ticketModal')->name('admin.draw.ticket.modal');
+
     });
 
     // Logout Admin
