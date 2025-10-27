@@ -4,45 +4,211 @@
 @push('custom-css')
 @include('admin.includes.datatable-css-plugins')
 
-<style>
-    body{background-color:#f5f7fa!important;font-size:1.05rem!important;font-weight:500!important;color:#222!important}
-    h2{font-weight:400!important;font-size:1rem!important;color:#2c3e50!important}
-    .card{border:none!important;border-radius:12px!important;box-shadow:0 4px 12px rgba(0,0,0,0.08)!important;margin-bottom:20px!important}
-    .card-header{font-weight:700!important;font-size:1.2rem!important;border-radius:12px 12px 0 0!important;padding:12px 15px!important}
-    .card-body{font-size:1rem!important;font-weight:500!important;padding:5px 5px!important}
+ <style>
+            body {
+                background-color: #faf7f5 !important;
+                font-size: 1.05rem !important;
+                font-weight: 500 !important;
+                color: #222 !important;
+            }
 
-    table.dataTable{font-size:1.05rem!important;font-weight:600!important;text-align:center!important;width:100%!important}
-    table.dataTable thead th{background-color:#2c3e50!important;color:#fff!important;text-transform:uppercase!important;font-size:1.1rem!important;padding:12px!important;font-weight:bold!important}
-    table.dataTable tbody td{padding:10px!important;vertical-align:middle!important;font-weight:bold!important}
+            h2 {
+                font-weight: 400 !important;
+                font-size: 1rem !important;
+                color: #2c3e50 !important;
+            }
 
-    .text-success,.bg-success{background-color:#198754!important;color:#fff!important;font-weight:700!important;border-radius:6px!important;padding:5px 10px!important}
-    .text-danger,.bg-danger{background-color:#dc3545!important;color:#fff!important;font-weight:700!important;border-radius:6px!important;padding:5px 10px!important}
+            .card {
+                border: none !important;
+                border-radius: 12px !important;
+                box-shadow: 0 4px 12px rgba(0, 0, 0, 0.08) !important;
+                margin-bottom: 20px !important;
+            }
 
-    tr.row-positive{background-color:#e6f4ea!important}
-    tr.row-negative{background-color:#fdecea!important}
+            .card-header {
+                font-weight: 700 !important;
+                font-size: 1.2rem !important;
+                border-radius: 12px 12px 0 0 !important;
+                padding: 12px 15px !important;
+            }
 
-    .btn{font-size:1rem!important;font-weight:400!important;border-radius:8px!important;padding:6px 14px!important}
-    .btn-warning{background-color:#ffc107!important;color:#222!important;font-weight:700!important;border:none!important}
-    .btn-warning:hover{background-color:#e0a800!important;color:#fff!important}
+            .card-body {
+                font-size: 1rem !important;
+                font-weight: 500 !important;
+                padding: 5px 5px !important;
+            }
 
-    table.dataTable tbody tr:hover{background-color:#eef3f7!important;transition:.3s ease}
-    .dataTables_scrollBody{max-height:500px!important;overflow-y:auto!important}
+            table.dataTable {
+                font-size: 1.05rem !important;
+                font-weight: 600 !important;
+                text-align: center !important;
+                width: 100% !important;
+            }
 
-    div.dataTables_wrapper div.dataTables_paginate,
-    div.dataTables_wrapper div.dataTables_info,
-    div.dataTables_wrapper div.dataTables_length{display:none!important}
+            table.dataTable thead th {
+                background-color: #2c3e50 !important;
+                color: #fff !important;
+                text-transform: uppercase !important;
+                font-size: 1.1rem !important;
+                padding: 12px !important;
+                font-weight: bold !important;
+            }
 
-    .dataTables_scrollHead{position:sticky;top:0;z-index:100}
+            table.dataTable tbody td {
+                padding: 10px !important;
+                vertical-align: middle !important;
+                font-weight: bold !important;
+            }
 
-    .flash-green{background-color:#28a745!important;color:#fff!important;animation:flashFadeGreen 2s ease forwards}
-    .flash-red{background-color:#dc3545!important;color:#fff!important;animation:flashFadeRed 2s ease forwards}
-    @keyframes flashFadeGreen{0%{background-color:#28a745;color:#fff}100%{background-color:inherit;color:inherit}}
-    @keyframes flashFadeRed{0%{background-color:#dc3545;color:#fff}100%{background-color:inherit;color:inherit}}
+            .text-success,
+            .bg-success {
+                background-color: #198754 !important;
+                color: #fff !important;
+                font-weight: 700 !important;
+                border-radius: 6px !important;
+                padding: 5px 10px !important;
+            }
 
-    th:nth-child(1),td:nth-child(1){white-space:nowrap}
-    #totals-row{position:sticky;bottom:0;box-shadow:0 -2px 5px rgba(0,0,0,0.1)}
-    #totals-row td{background:#2c3e50!important;color:#fff}
-</style>
+            .text-danger,
+            .bg-danger {
+                background-color: #dc3545 !important;
+                color: #fff !important;
+                font-weight: 700 !important;
+                border-radius: 6px !important;
+                padding: 5px 10px !important;
+            }
+
+            tr.row-positive {
+                background-color: #e6f4ea !important;
+            }
+
+            tr.row-negative {
+                background-color: #fdecea !important;
+            }
+
+            .btn {
+                font-size: 1rem !important;
+                font-weight: 400 !important;
+                border-radius: 8px !important;
+                padding: 6px 14px !important;
+            }
+
+            .btn-warning {
+                background-color: #ffc107 !important;
+                color: #222 !important;
+                font-weight: 700 !important;
+                border: none !important;
+            }
+
+            .btn-warning:hover {
+                background-color: #e0a800 !important;
+                color: #fff !important;
+            }
+
+            table.dataTable tbody tr:hover {
+                background-color: #eef3f7 !important;
+                transition: 0.3s ease;
+            }
+
+            .dataTables_scrollBody {
+                max-height: 500px !important;
+                overflow-y: auto !important;
+            }
+
+            div.dataTables_wrapper div.dataTables_paginate,
+            div.dataTables_wrapper div.dataTables_info,
+            div.dataTables_wrapper div.dataTables_length {
+                display: none !important;
+            }
+
+            .dataTables_scrollHead {
+                position: sticky;
+                top: 0;
+                z-index: 100;
+            }
+
+            .flash-green {
+                background-color: #28a745 !important;
+                color: #fff !important;
+                animation: flashFadeGreen 2s ease forwards;
+            }
+
+            .flash-red {
+                background-color: #dc3545 !important;
+                color: #fff !important;
+                animation: flashFadeRed 2s ease forwards;
+            }
+
+            @keyframes flashFadeGreen {
+                0% {
+                    background-color: #28a745;
+                    color: #fff;
+                }
+
+                100% {
+                    background-color: inherit;
+                    color: inherit;
+                }
+            }
+
+            @keyframes flashFadeRed {
+                0% {
+                    background-color: #dc3545;
+                    color: #fff;
+                }
+
+                100% {
+                    background-color: inherit;
+                    color: inherit;
+                }
+            }
+
+            th:nth-child(1),
+            td:nth-child(1) {
+                white-space: nowrap;
+            }
+
+            #totals-row {
+                position: sticky;
+                bottom: 0;
+                box-shadow: 0 -2px 5px rgba(0, 0, 0, 0.1);
+            }
+
+            #totals-row td {
+                background: #2c3e50 !important;
+                color: white;
+            }
+
+            table.dataTable tbody td a.claim-open {
+                display: inline-block;
+                min-width: 34px;
+                padding: 4px 7px;
+                border-radius: 6px;
+                font-weight: 700;
+                text-align: center;
+                text-decoration: none !important;
+                color: #fd2d0d !important;
+                /* Bootstrap primary */
+                background: rgba(13, 110, 253, 0.06);
+                /* subtle blue tint */
+                border: 1px solid rgba(13, 110, 253, 0.18);
+            }
+
+            /* stronger hover affordance */
+            table.dataTable tbody td a.claim-open:hover,
+            table.dataTable tbody td a.claim-open:focus {
+                background: rgba(13, 110, 253, 0.12);
+                color: #0b5ed7 !important;
+                box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.06);
+            }
+
+            table.dataTable tbody tr.dark-row td a.claim-open,
+            .table-dark table.dataTable tbody td a.claim-open {
+                color: #fff !important;
+                background: rgba(255, 255, 255, 0.12);
+                border-color: rgba(255, 255, 255, 0.18);
+            }
+        </style>
 @endpush
 
 <div class="card" style="background:linear-gradient(145deg,#0a192f,#172a45);color:#e6f1ff;">
