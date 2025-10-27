@@ -698,24 +698,7 @@
         </script>
 
 <script>
-/**
- * Consolidated Claim <-> Ticket modal handler
- * Replaces the previous 'claim-open' and '__claim_modal_reliable_init' blocks.
- *
- * Works with:
- *  - Claim modal ID: #claimDetailsModal
- *  - Claim table inside modal: #claimDetailsTable
- *  - Claim triggers: <a class="claim-open" data-draw-detail-id="..." data-draw-time="..." data-type="..." data-value="...">
- *  - Ticket links in claim table: <a class="open-ticket" data-draw="..." data-ticket="..." data-user="...">
- *  - Ticket endpoint: /admin/draw/ticket-modal/{drawId}/{ticketId}/{userId}
- *  - Claim endpoint base: "{{ url('admin/draw/draw-details') }}"
- *
- * Behavior:
- *  - Click .claim-open -> loads claim list into #claimDetailsModal and shows modal.
- *  - Click .open-ticket (inside modal) -> saves claim HTML, loads ticket HTML into same modal, shows Back+Close.
- *  - Click Back -> restores claim HTML and re-initializes any claim table DataTable.
- *  - Click Close -> fully cleanup modal (remove backdrops, destroy datatables, optionally reload main table).
- */
+
 
 (function($){
   'use strict';
